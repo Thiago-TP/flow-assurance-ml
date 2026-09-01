@@ -62,6 +62,17 @@ WINDOW_CLASSES = {
     **{100 + k: f"{v} (transient)" for k, v in _TRANSIENT_CAPABLE.items()},
 }
 
+# -- Label groupings ----------------------------------------------------------
+
+# Coarse regrouping for the hydrate question: is the well heading for normal
+# operation, a hydrate event, or some other flow-assurance problem? Hydrate
+# covers faults 8 and 9 (production and service line); every other fault
+# collapses into a single "Other Problem" group. Transient labels (101-109)
+# join the group of their active counterpart.
+GROUPINGS = ("none", "hydrate")
+HYDRATE_CLASSES = (8, 9)
+HYDRATE_GROUP_NAMES = {0: "Normal", 1: "Other Problem", 2: "Hydrate"}
+
 # -- Sensors ------------------------------------------------------------------
 
 KEY_SENSORS = [

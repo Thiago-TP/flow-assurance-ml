@@ -29,6 +29,7 @@ from xgboost import XGBClassifier
 
 from flowml.config import (
     FAULT_CLASSES,
+    HYDRATE_CLASSES,
     META_COLS,
     N_ITER_SEARCH,
     N_JOBS,
@@ -42,6 +43,35 @@ from flowml.config import (
 
 TASKS = ("prediction", "detection")
 MODEL_TYPES = ("rf", "xgb")
+
+
+def group_labels(y: np.ndarray, grouping: str) -> np.ndarray:
+    """Collapse fine-grained fault labels onto a coarser set of groups.
+
+    The ``"hydrate"`` grouping answers the operational triage question —
+    normal operation, a hydrate event, or some other flow-assurance problem —
+    by mapping 0 to 0, faults 8 and 9 to 2, and every other fault to 1.
+    Transient labels (101-109) fall in the group of their active counterpart,
+    so the mapping works for both tasks.
+
+    Parameters
+    ----------
+    y : np.ndarray
+        Original integer labels.
+    grouping : str
+        ``"none"`` (returns ``y`` unchanged) or ``"hydrate"``.
+
+    Returns
+    -------
+    np.ndarray
+        Grouped labels, same shape as ``y``.
+    """
+    if grouping == "none":
+        return y
+    if grouping != "hydrate":
+        raise ValueError(f"Unknown grouping: {grouping!r}")
+    base = np.where(y >= 100, y - 100, y)
+    return np.where(base == 0, 0, np.where(np.isin(base, HYDRATE_CLASSES), 2, 1))
 
 
 @dataclass

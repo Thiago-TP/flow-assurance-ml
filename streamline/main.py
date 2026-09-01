@@ -7,9 +7,12 @@ when its parquet already exists, unless ``--rebuild-features`` is given.
 Usage
 -----
     uv run main.py [--model {rf,xgb}] [--task {prediction,detection}]
-                   [--filter {gaussian,statistical,none}]
+                   [--filter {gaussian,statistical,none}] [--grouping {none,hydrate}]
                    [--max-instances N] [--rebuild-features]
                    [--skip-permutation] [--top-n N] [--depths 2,3,4,5,6]
+
+``--grouping`` reaches the scoring stages (3 and 5) only: features and the
+ensemble are always built on the full class set.
 
 Examples
 --------
@@ -22,7 +25,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from flowml.cli import run_parser
+from flowml.cli import add_grouping_arg, run_parser
 from flowml.config import features_path
 
 SCRIPTS_DIR = Path(__file__).parent / "scripts"
@@ -49,6 +52,7 @@ def run_stage(script: str, extra_args: list[str]) -> None:
 def main() -> None:
     """Parse the shared switches and run every stage in order."""
     parser = run_parser(__doc__.splitlines()[0])
+    add_grouping_arg(parser)
     parser.add_argument(
         "--max-instances",
         type=int,
@@ -90,8 +94,10 @@ def main() -> None:
             stage1_args += ["--max-instances", str(args.max_instances)]
         run_stage("01_build_features.py", stage1_args)
 
+    grouped = [*modeled, "--grouping", args.grouping]
+
     run_stage("02_train.py", modeled)
-    run_stage("03_evaluate.py", modeled)
+    run_stage("03_evaluate.py", grouped)
 
     stage4_args = list(modeled)
     if args.skip_permutation:
@@ -100,7 +106,7 @@ def main() -> None:
 
     run_stage(
         "05_decision_tree.py",
-        [*modeled, "--top-n", str(args.top_n), "--depths", args.depths],
+        [*grouped, "--top-n", str(args.top_n), "--depths", args.depths],
     )
 
     print(f"\n{'=' * 70}\n  Pipeline complete.\n{'=' * 70}")

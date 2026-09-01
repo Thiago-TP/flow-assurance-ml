@@ -28,3 +28,6 @@ build-backend = "uv_build"
 dev = [
     "ruff>=0.8",
 ]
+
+[tool.ruff.lint.isort]
+known-first-party = ["flowml"]

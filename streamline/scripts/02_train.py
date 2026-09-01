@@ -24,10 +24,11 @@ from datetime import datetime
 
 import joblib
 import pandas as pd
+from sklearn.preprocessing import LabelEncoder
+
 from flowml.cli import run_parser, run_tag
 from flowml.config import METRICS_DIR, MODELS_DIR, N_SPLITS_CV
 from flowml.training import load_task_data, oof_predict, search_hyperparameters
-from sklearn.preprocessing import LabelEncoder
 
 
 def main() -> None:

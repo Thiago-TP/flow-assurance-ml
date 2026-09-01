@@ -61,14 +61,44 @@ uv run scripts/04_interpret.py
 uv run scripts/05_decision_tree.py  # compact tree on the top SHAP features
 ```
 
-Every stage takes the same three switches, and each `(model, task, filter)`
-combination writes its artifacts under a unique tag:
+Every stage takes the same switches, and each combination writes its artifacts
+under a unique tag:
 
-| Switch | Choices | Default |
-|--------|---------|---------|
-| `--model` | `rf`, `xgb` | `xgb` |
-| `--task` | `prediction`, `detection` | `prediction` |
-| `--filter` | `gaussian`, `statistical`, `none` | `none` |
+| Switch | Choices | Default | Stages |
+|--------|---------|---------|--------|
+| `--model` | `rf`, `xgb` | `xgb` | 2–5 |
+| `--task` | `prediction`, `detection` | `prediction` | 2–5 |
+| `--filter` | `gaussian`, `statistical`, `none` | `none` | 1–5 |
+| `--grouping` | `none`, `hydrate` | `none` | 3, 5 |
+
+## Class groupings
+
+`--grouping hydrate` collapses the classes onto the operational triage
+question — is the well heading for normal operation, a hydrate event, or some
+other flow-assurance problem? Faults 8 and 9 become **Hydrate**, every other
+fault becomes **Other Problem**, and transients follow their active
+counterpart:
+
+```mermaid
+flowchart LR
+    subgraph F["fault_class / window_label"]
+        N["0"]
+        O["1 · 2 · 5 · 6 · 7<br/>(+3 · 4 in detection)"]
+        H["8 · 9"]
+    end
+    N --> GN["0 Normal"]
+    O --> GO["1 Other Problem"]
+    H --> GH["2 Hydrate"]
+```
+
+Grouping affects **scoring only** — features and the ensemble are always built
+on the full class set. Stage 5 then compares two ways of reaching the grouped
+labels, both scored against the same truth:
+
+| Strategy | Trains on | Answers |
+|----------|-----------|---------|
+| `collapse` | full class set, predictions collapsed afterwards | how well does the existing tree already serve the triage question? |
+| `native` | the 3 grouped labels directly | what does spending the whole depth budget on this distinction buy? |
 
 ## Artifacts
 

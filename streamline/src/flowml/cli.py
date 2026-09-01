@@ -2,6 +2,7 @@
 
 import argparse
 
+from flowml.config import GROUPINGS
 from flowml.preprocessing import FILTER_TYPES
 from flowml.training import MODEL_TYPES, TASKS
 
@@ -47,6 +48,29 @@ def run_parser(description: str, with_model: bool = True) -> argparse.ArgumentPa
             ),
         )
     return parser
+
+
+def add_grouping_arg(parser: argparse.ArgumentParser) -> None:
+    """Add the ``--grouping`` switch to a parser that scores predictions.
+
+    Only the stages that read labels back (evaluation, decision tree) accept
+    it; feature building and ensemble training always work on the full set of
+    classes.
+
+    Parameters
+    ----------
+    parser : argparse.ArgumentParser
+        Parser to extend in place.
+    """
+    parser.add_argument(
+        "--grouping",
+        choices=GROUPINGS,
+        default="none",
+        help=(
+            "collapse classes before scoring: hydrate = Normal / Other Problem "
+            "/ Hydrate (default: none)"
+        ),
+    )
 
 
 def run_tag(model: str, task: str, filter_type: str) -> str:
