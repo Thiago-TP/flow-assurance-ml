@@ -1,0 +1,30 @@
+[project]
+name = "flowml"
+version = "0.1.0"
+description = "Streamlined flow-assurance ML pipeline for the Petrobras 3W dataset: fault detection and fault prediction with Random Forest / XGBoost."
+readme = "README.md"
+authors = [
+    { name = "Thiago-TP", email = "thiagotomasdepaula@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "joblib>=1.4",
+    "matplotlib>=3.9",
+    "numba>=0.61",
+    "numpy>=2.0",
+    "pandas>=2.2",
+    "pyarrow>=17.0",
+    "scikit-learn>=1.5",
+    "scipy>=1.14",
+    "shap>=0.46",
+    "xgboost>=2.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.7,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.8",
+]
