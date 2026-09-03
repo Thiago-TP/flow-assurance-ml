@@ -9,7 +9,7 @@ Two tasks, two tree models (Random Forest, XGBoost), four stages, one features p
 ```mermaid
 flowchart LR
 
-  subgraph S1["01_build_features.py"]
+  subgraph S1["Dataset building (01_build_features.py)"]
     direction TB
     A[("3W raw parquets<br/>1 file = 1 well instance")] --> B["clean<br/>ffill ≤ 60 s · quality gate"]
     B --> C["z-score<br/>per instance"]
@@ -17,12 +17,11 @@ flowchart LR
     D --> E[("data/features.parquet<br/>labels: window_label + fault_class")]
   end
 
-  subgraph S2["Pipeline"]
+  subgraph S2["Train/Test/Tree Pipeline"]
     direction TB
-    F["02_train.py<br/>GroupKFold search + OOF"] --> G["03_evaluate.py<br/>metrics + confusion matrix"]
-    F --> H["04_interpret.py<br/>MDI · gain · permutation · SHAP"]
+    F["02_train.py<br/>GroupKFold search for best F1 Macro <br>+ OOF"] --> G["03_evaluate.py<br/>metrics + confusion matrix"]
+    G --> H["04_interpret.py<br/>MDI · gain · permutation · SHAP"]
     H --> I["05_decision_tree.py<br/>compact tree on top SHAP features"]
-    I --> G
   end
 
   S1 --> S2
@@ -96,18 +95,18 @@ other flow-assurance problem? Faults 8 and 9 become **Hydrate**, every other
 fault becomes **Other Problem**, and transients follow their active
 counterpart:
 
-|Fault Number|Fault Name|New Number|New Name|
-|------------|----------|----------|--------|
-|0|Normal|0|Normal|
-|1|Abrupt BSW Increase|1|Other Problem|
-|2|Spurious DHSV Closure|1|Other Problem|
-|3|Severe Slugging|1|Other Problem|
-|4|Flow Instability|1|Other Problem|
-|5|Rapid Productivity Loss|1|Other Problem|
-|6|Quick PCK Restriction|1|Other Problem|
-|7|PCK Scaling|1|Other Problem|
-|8|Hydrate in Production Line|2|Hydrate|
-|9|Hydrate in Service Line|2|Hydrate|
+| Fault Number | Fault Name                 | New Number | New Name      |
+| ------------ | -------------------------- | ---------- | ------------- |
+| 0            | Normal                     | 0          | Normal        |
+| 1            | Abrupt BSW Increase        | 1          | Other Problem |
+| 2            | Spurious DHSV Closure      | 1          | Other Problem |
+| 3            | Severe Slugging            | 1          | Other Problem |
+| 4            | Flow Instability           | 1          | Other Problem |
+| 5            | Rapid Productivity Loss    | 1          | Other Problem |
+| 6            | Quick PCK Restriction      | 1          | Other Problem |
+| 7            | PCK Scaling                | 1          | Other Problem |
+| 8            | Hydrate in Production Line | 2          | Hydrate       |
+| 9            | Hydrate in Service Line    | 2          | Hydrate       |
 
 > [!WARNING]
 > Grouping affects **scoring only**, features and the ensemble are always built on the full class set.
