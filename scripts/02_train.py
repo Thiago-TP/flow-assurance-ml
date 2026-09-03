@@ -38,7 +38,7 @@ def main() -> None:
     print(f"Training {tag} | started {datetime.now().astimezone():%Y-%m-%d %H:%M:%S}")
 
     print("\n[1/3] Loading dataset...")
-    data = load_task_data(args.filter_type, args.task)
+    data = load_task_data(args.task)
     encoder = LabelEncoder().fit(data.y)
     print(
         f"  {data.n_windows:,} windows | {len(data.feature_cols)} features "

@@ -18,7 +18,6 @@ grouped truth, so their numbers are directly comparable:
 Usage
 -----
     uv run scripts/05_decision_tree.py [--model {rf,xgb}] [--task {prediction,detection}]
-                                       [--filter {gaussian,statistical,none}]
                                        [--grouping {none,hydrate}]
                                        [--top-n N] [--depths 2,3,4,5,6]
 
@@ -48,7 +47,7 @@ from sklearn.model_selection import GroupKFold
 from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeClassifier, export_text, plot_tree
 
-from flowml.cli import add_grouping_arg, run_parser, run_tag
+from flowml.cli import add_class_grouping_arg, run_parser, run_tag
 from flowml.config import (
     FAULT_CLASSES,
     FIGURES_DIR,
@@ -91,9 +90,7 @@ def make_tree_pipeline(max_depth: int) -> Pipeline:
     )
 
 
-def oof_predictions(
-    max_depth: int, X: np.ndarray, y: np.ndarray, groups: np.ndarray
-) -> np.ndarray:
+def oof_predictions(max_depth: int, X: np.ndarray, y: np.ndarray, groups: np.ndarray) -> np.ndarray:
     """Compute grouped out-of-fold predictions for one tree depth.
 
     Parameters
@@ -169,9 +166,7 @@ def run_strategy(
         y_pred = oof_predictions(depth, X, y_train, groups)
         if collapse_predictions:
             y_pred = group_labels(y_pred, grouping)
-        sweep[depth] = round(
-            float(f1_score(y_eval, y_pred, average="macro", zero_division=0)), 4
-        )
+        sweep[depth] = round(float(f1_score(y_eval, y_pred, average="macro", zero_division=0)), 4)
         predictions[depth] = y_pred
         print(f"    depth={depth}: OOF F1-macro = {sweep[depth]:.4f}")
 
@@ -247,7 +242,7 @@ def export_tree(
 def main() -> None:
     """Select top SHAP features, sweep depths per strategy, and export trees."""
     parser = run_parser(__doc__.splitlines()[0])
-    add_grouping_arg(parser)
+    add_class_grouping_arg(parser)
     parser.add_argument(
         "--top-n",
         type=int,
@@ -262,8 +257,8 @@ def main() -> None:
     args = parser.parse_args()
     depths = [int(d) for d in args.depths.split(",")]
 
-    tag = run_tag(args.model, args.task, args.filter_type)
-    dtag = f"dt_{args.task}_{args.filter_type}_from_{args.model}"
+    tag = run_tag(args.model, args.task)
+    dtag = f"dt_{args.task}_from_{args.model}"
     if args.grouping != "none":
         dtag = f"{dtag}_{args.grouping}"
 
@@ -272,21 +267,18 @@ def main() -> None:
         sys.exit(
             f"{importance_path} not found. Run the interpretation stage first:\n"
             f"  uv run scripts/04_interpret.py --model {args.model} "
-            f"--task {args.task} --filter {args.filter_type}"
+            f"--task {args.task}"
         )
     with open(importance_path, encoding="utf-8") as f:
         shap_scores = json.load(f)["rankings"]["shap"]
     top_features = (
-        pd.Series(shap_scores)
-        .sort_values(ascending=False)
-        .head(args.top_n)
-        .index.tolist()
+        pd.Series(shap_scores).sort_values(ascending=False).head(args.top_n).index.tolist()
     )
 
     print(f"Decision tree — {dtag}")
     print(f"  Top {args.top_n} SHAP features ({args.model}): {top_features}")
 
-    data = load_task_data(args.filter_type, args.task)
+    data = load_task_data(args.task)
     col_idx = [data.feature_cols.index(f) for f in top_features]
     X = data.X[:, col_idx]
 
@@ -305,9 +297,7 @@ def main() -> None:
 
     print(f"\n[1/2] Depth sweeps with GroupKFold({N_SPLITS_CV}) OOF...")
     results = {
-        name: run_strategy(
-            name, depths, X, y_train, y_eval, data.groups, args.grouping, collapse
-        )
+        name: run_strategy(name, depths, X, y_train, y_eval, data.groups, args.grouping, collapse)
         for name, y_train, collapse in strategies
     }
 
@@ -338,10 +328,7 @@ def main() -> None:
             y_eval,
             result["y_pred"],
             label_map,
-            title=(
-                f"Confusion matrix — {artifact}, "
-                f"depth {result['best_depth']} (row-normalized)"
-            ),
+            title=(f"Confusion matrix — {artifact}, depth {result['best_depth']} (row-normalized)"),
             out_path=FIGURES_DIR / f"{artifact}_confusion_matrix.png",
         )
 

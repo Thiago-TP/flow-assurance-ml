@@ -11,10 +11,9 @@ on the full class set serves the coarser triage question.
 Usage
 -----
     uv run scripts/03_evaluate.py [--model {rf,xgb}] [--task {prediction,detection}]
-                                  [--filter {gaussian,statistical,none}]
                                   [--grouping {none,hydrate}]
 
-Outputs (tag = <model>_<task>_<filter>, suffixed with _<grouping> when grouping)
+Outputs (tag = <model>_<task>, suffixed with _<grouping> when grouping)
 --------------------------------------------------------------------------------
     results/metrics/<tag>_metrics.json
     results/figures/<tag>_confusion_matrix.png
@@ -25,7 +24,7 @@ import sys
 
 import pandas as pd
 
-from flowml.cli import add_grouping_arg, run_parser, run_tag
+from flowml.cli import add_class_grouping_arg, run_parser, run_tag
 from flowml.config import (
     FAULT_CLASSES,
     FIGURES_DIR,
@@ -45,16 +44,16 @@ from flowml.training import group_labels
 def main() -> None:
     """Parse arguments, compute metrics from the OOF table, and save outputs."""
     parser = run_parser(__doc__.splitlines()[0])
-    add_grouping_arg(parser)
+    add_class_grouping_arg(parser)
     args = parser.parse_args()
 
-    source_tag = run_tag(args.model, args.task, args.filter_type)
+    source_tag = run_tag(args.model, args.task)
     oof_path = METRICS_DIR / f"{source_tag}_oof.parquet"
     if not oof_path.exists():
         sys.exit(
             f"{oof_path} not found. Train first:\n"
             f"  uv run scripts/02_train.py --model {args.model} "
-            f"--task {args.task} --filter {args.filter_type}"
+            f"--task {args.task}"
         )
     oof = pd.read_parquet(oof_path)
 

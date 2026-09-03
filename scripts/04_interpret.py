@@ -7,10 +7,9 @@ on the top SHAP features.
 Usage
 -----
     uv run scripts/04_interpret.py [--model {rf,xgb}] [--task {prediction,detection}]
-                                   [--filter {gaussian,statistical,none}]
                                    [--skip-permutation]
 
-Outputs (tag = <model>_<task>_<filter>)
+Outputs (tag = <model>_<task>)
 ---------------------------------------
     results/metrics/<tag>_importance.json   full rankings, every method
     results/figures/<tag>_mdi.png           (rf)  or  <tag>_gain.png (xgb)
@@ -45,7 +44,7 @@ def main() -> None:
         help="skip permutation importance (the slowest method)",
     )
     args = parser.parse_args()
-    tag = run_tag(args.model, args.task, args.filter_type)
+    tag = run_tag(args.model, args.task)
     cmap = "Blues_r" if args.model == "rf" else "Oranges_r"
 
     model_path = MODELS_DIR / f"{tag}.joblib"
@@ -53,14 +52,14 @@ def main() -> None:
         sys.exit(
             f"{model_path} not found. Train first:\n"
             f"  uv run scripts/02_train.py --model {args.model} "
-            f"--task {args.task} --filter {args.filter_type}"
+            f"--task {args.task}"
         )
     pipe = joblib.load(model_path)
     encoder = joblib.load(MODELS_DIR / f"{tag}_label_encoder.joblib")
     clf = pipe.named_steps["clf"]
 
     print(f"Interpretation — {tag}")
-    data = load_task_data(args.filter_type, args.task)
+    data = load_task_data(args.task)
     X_imputed = pipe.named_steps["imputer"].transform(data.X)
     rankings: dict[str, dict] = {}
 

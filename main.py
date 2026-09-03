@@ -25,7 +25,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from flowml.cli import add_grouping_arg, run_parser
+from flowml.cli import add_class_grouping_arg, run_parser
 from flowml.config import features_path
 
 SCRIPTS_DIR = Path(__file__).parent / "scripts"
@@ -42,9 +42,7 @@ def run_stage(script: str, extra_args: list[str]) -> None:
         Command-line arguments forwarded to the script.
     """
     print(f"\n{'=' * 70}\n  {script}\n{'=' * 70}", flush=True)
-    result = subprocess.run(
-        [sys.executable, str(SCRIPTS_DIR / script), *extra_args], check=False
-    )
+    result = subprocess.run([sys.executable, str(SCRIPTS_DIR / script), *extra_args], check=False)
     if result.returncode != 0:
         sys.exit(f"{script} failed with exit code {result.returncode}; aborting.")
 
@@ -52,7 +50,7 @@ def run_stage(script: str, extra_args: list[str]) -> None:
 def main() -> None:
     """Parse the shared switches and run every stage in order."""
     parser = run_parser(__doc__.splitlines()[0])
-    add_grouping_arg(parser)
+    add_class_grouping_arg(parser)
     parser.add_argument(
         "--max-instances",
         type=int,

@@ -31,9 +31,7 @@ def global_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
         ``f1_macro``, ``f1_weighted``, and ``accuracy``, rounded to 4 decimals.
     """
     return {
-        "f1_macro": round(
-            float(f1_score(y_true, y_pred, average="macro", zero_division=0)), 4
-        ),
+        "f1_macro": round(float(f1_score(y_true, y_pred, average="macro", zero_division=0)), 4),
         "f1_weighted": round(
             float(f1_score(y_true, y_pred, average="weighted", zero_division=0)), 4
         ),
@@ -41,9 +39,7 @@ def global_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
     }
 
 
-def per_class_metrics(
-    y_true: np.ndarray, y_pred: np.ndarray, label_map: dict[int, str]
-) -> dict:
+def per_class_metrics(y_true: np.ndarray, y_pred: np.ndarray, label_map: dict[int, str]) -> dict:
     """Compute precision/recall/F1/support per class.
 
     Parameters

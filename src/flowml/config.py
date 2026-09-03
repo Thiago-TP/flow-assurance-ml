@@ -13,16 +13,14 @@ from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]  # the streamline/ directory
 
-RAW_DATA_DIR = Path(os.environ.get("FLOWML_RAW_DATA_DIR", r"H:\projetos\3W\dataset"))
+RAW_DATA_DIR = Path(os.environ.get("FLOWML_RAW_DATA_DIR", r"../3W/dataset"))
 
 DATA_DIR = PACKAGE_ROOT / "data"
 RESULTS_DIR = PACKAGE_ROOT / "results"
 MODELS_DIR = RESULTS_DIR / "models"
 METRICS_DIR = RESULTS_DIR / "metrics"
 FIGURES_DIR = RESULTS_DIR / "figures"
-
 FEATURES_PATH = DATA_DIR / "features.parquet"
-
 
 # -- 3W dataset classes -------------------------------------------------------
 
@@ -55,7 +53,7 @@ WINDOW_CLASSES = {
 # covers faults 8 and 9 (production and service line); every other fault
 # collapses into a single "Other Problem" group. Transient labels (101-109)
 # join the group of their active counterpart.
-GROUPINGS = ("none", "hydrate", "custom")
+CLASS_GROUPINGS = ("none", "hydrate", "custom")
 HYDRATE_GROUPING: dict[int, str] = {
     0: "Normal",
     1: "Other Problem",
@@ -132,9 +130,15 @@ META_COLS = [
 # -- Modeling -----------------------------------------------------------------
 
 RANDOM_STATE = 42
-N_SPLITS_CV = 5  # GroupKFold folds (grouped by instance_id)
-N_ITER_SEARCH = 20  # RandomizedSearchCV iterations
-N_JOBS = 6  # parallel workers (keep below core count to preserve RAM)
+CV_GROUPINGS = ("instance_id", "well_id")
+CV_GROUPING = "instance_id"  # GroupKFold groups by instance_id
+CV_SPLITS = 5  # GroupKFold folds (grouped by instance_id)
+N_SPLITS_CV = min(2, CV_SPLITS)  # GroupKFold folds (grouped by instance_id)
+N_ITER_SEARCH = 10  # RandomizedSearchCV iterations
+N_JOBS = max(
+    0,
+    min(6, os.cpu_count() - 2),  # parallel workers (keep below core count to preserve RAM)
+)
 
 RF_PARAM_GRID = {
     "clf__n_estimators": [100, 200, 300],

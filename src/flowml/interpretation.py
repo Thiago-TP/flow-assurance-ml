@@ -65,9 +65,7 @@ def mdi_importance(rf, feature_cols: list[str]) -> pd.Series:
     pd.Series
         Importance per feature, descending.
     """
-    return pd.Series(rf.feature_importances_, index=feature_cols).sort_values(
-        ascending=False
-    )
+    return pd.Series(rf.feature_importances_, index=feature_cols).sort_values(ascending=False)
 
 
 def xgb_importance(xgb, feature_cols: list[str]) -> dict[str, pd.Series]:
@@ -90,10 +88,7 @@ def xgb_importance(xgb, feature_cols: list[str]) -> dict[str, pd.Series]:
     booster.feature_names = feature_cols
     return {
         imp_type: pd.Series(
-            {
-                f: booster.get_score(importance_type=imp_type).get(f, 0.0)
-                for f in feature_cols
-            }
+            {f: booster.get_score(importance_type=imp_type).get(f, 0.0) for f in feature_cols}
         ).sort_values(ascending=False)
         for imp_type in ("gain", "weight", "cover")
     }
@@ -134,9 +129,7 @@ def permutation_ranking(
         random_state=RANDOM_STATE,
         n_jobs=N_JOBS,
     )
-    mean = pd.Series(result.importances_mean, index=feature_cols).sort_values(
-        ascending=False
-    )
+    mean = pd.Series(result.importances_mean, index=feature_cols).sort_values(ascending=False)
     return mean, result.importances
 
 
@@ -169,9 +162,7 @@ def shap_ranking(clf, X_imputed: np.ndarray, feature_cols: list[str]) -> pd.Seri
     return pd.Series(scores, index=feature_cols).sort_values(ascending=False)
 
 
-def plot_ranking(
-    ranking: pd.Series, title: str, xlabel: str, out_path, cmap="Blues_r"
-) -> None:
+def plot_ranking(ranking: pd.Series, title: str, xlabel: str, out_path, cmap="Blues_r") -> None:
     """Save a horizontal bar plot of the top-N features of a ranking.
 
     Parameters

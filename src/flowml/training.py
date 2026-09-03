@@ -9,7 +9,7 @@ Two tasks share the same features parquet:
   (``fault_class``: 8 classes; faults 3 and 4 have no recorded normal period).
 
 All validation is grouped by ``instance_id`` (GroupKFold), so windows of the
-same well never appear in train and test simultaneously. Imputation lives
+same time series never appear in train and test simultaneously. Imputation lives
 inside the model pipeline and is therefore refit on each training fold —
 no information leaks across folds.
 """
@@ -28,10 +28,10 @@ from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
 
 from flowml.config import (
+    CLASS_GROUPINGS,
     CUSTOM_GROUPING,
     FAULT_CLASSES,
     FEATURES_PATH,
-    GROUPINGS,
     HYDRATE_GROUPING,
     META_COLS,
     N_ITER_SEARCH,
@@ -68,8 +68,8 @@ def group_labels(y: np.ndarray, grouping: str) -> np.ndarray:
     np.ndarray
         Grouped labels, same shape as ``y``.
     """
-    if grouping not in GROUPINGS:
-        raise ValueError(f"Unknown grouping: {grouping!r} (expected {GROUPINGS})")
+    if grouping not in CLASS_GROUPINGS:
+        raise ValueError(f"Unknown grouping: {grouping!r} (expected {CLASS_GROUPINGS})")
     if grouping == "none":
         return y
     if grouping == "hydrate":
@@ -219,7 +219,7 @@ def search_hyperparameters(
         n_iter=N_ITER_SEARCH,
         cv=GroupKFold(n_splits=N_SPLITS_CV),
         scoring="f1_macro",
-        n_jobs=1,
+        n_jobs=N_JOBS,
         random_state=RANDOM_STATE,
         verbose=2,
         refit=True,
