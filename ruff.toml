@@ -1,0 +1,13 @@
+target-version = "py313"
+line-length = 100
+
+[lint]
+
+[lint.isort]
+known-first-party = ["flowml"]
+
+[lint.per-file-ignores]
+# "src/notebooks/**/*.ipynb" = ["E501"]
+
+[format]
+quote-style = "double"
