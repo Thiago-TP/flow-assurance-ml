@@ -1,6 +1,6 @@
-"""Metric computation and evaluation plots from out-of-fold predictions.
+"""Metric computation and evaluation plots from held-out predictions.
 
-Works purely on the OOF prediction table produced by the training script, so
+Works purely on the evaluation table produced by the train/val/test stage, so
 evaluation never refits a model.
 """
 
@@ -79,13 +79,16 @@ def per_class_metrics(y_true: np.ndarray, y_pred: np.ndarray, label_map: dict[in
     }
 
 
-def per_fold_metrics(oof: pd.DataFrame) -> dict:
-    """Compute F1-macro per CV fold from the OOF table.
+def per_fold_metrics(preds: pd.DataFrame) -> dict:
+    """Compute F1-macro per fold from the evaluation table.
+
+    The holdout protocol has a single fold; the nested protocol one per outer
+    fold.
 
     Parameters
     ----------
-    oof : pd.DataFrame
-        OOF predictions with columns ``fold``, ``y_true``, ``y_pred``.
+    preds : pd.DataFrame
+        Held-out predictions with columns ``fold``, ``y_true``, ``y_pred``.
 
     Returns
     -------
@@ -97,7 +100,7 @@ def per_fold_metrics(oof: pd.DataFrame) -> dict:
             float(f1_score(g["y_true"], g["y_pred"], average="macro", zero_division=0)),
             4,
         )
-        for fold, g in oof.groupby("fold")
+        for fold, g in preds.groupby("fold")
     }
     values = list(scores.values())
     scores["mean"] = round(float(np.mean(values)), 4)

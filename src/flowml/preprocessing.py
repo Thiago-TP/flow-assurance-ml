@@ -1,11 +1,12 @@
-"""Raw-data loading, cleaning, normalization, and signal filtering.
+"""Raw-data loading, cleaning, and normalization.
 
 The 3W dataset stores one parquet file per instance (a continuous recording of
 one well), organized in folders ``0/`` .. ``9/`` named after the fault class.
-This module turns those raw files into clean, per-instance-normalized,
-optionally filtered sensor series ready for feature extraction.
+This module turns those raw files into clean, per-instance-normalized sensor
+series ready for feature extraction.
 """
 
+import re
 from pathlib import Path
 
 import numpy as np
@@ -41,6 +42,36 @@ def parse_source_type(filename: str) -> str:
     return "WELL"
 
 
+def parse_well_id(filename: str) -> str:
+    """Extract the well identifier from an instance filename.
+
+    Real instances are named ``WELL-000{id}_...`` (e.g.
+    ``WELL-00026_20170608230000.parquet`` comes from well 26). Simulated and
+    hand-drawn instances have no physical well, so they get the fictitious
+    IDs ``"simulated"`` and ``"drawn"``.
+
+    Parameters
+    ----------
+    filename : str
+        Name of the raw parquet file.
+
+    Returns
+    -------
+    str
+        The well number without leading zeros (e.g. ``"26"``), or
+        ``"simulated"`` / ``"drawn"``.
+    """
+    name = Path(filename).stem.upper()
+    if "SIMULATED" in name:
+        return "simulated"
+    if "DRAWN" in name:
+        return "drawn"
+    match = re.match(r"WELL-(\d+)", name)
+    if match:
+        return str(int(match.group(1)))
+    return name  # unrecognized pattern: keep the stem as its own group
+
+
 def iter_raw_instances(
     raw_dir: Path,
     fault_classes: list[int],
@@ -62,7 +93,8 @@ def iter_raw_instances(
     ------
     (int, pd.DataFrame)
         The fault class and one instance DataFrame with the metadata columns
-        ``instance_id``, ``fault_class``, and ``source_type`` attached.
+        ``instance_id``, ``well_id``, ``fault_class``, and ``source_type``
+        attached.
     """
     for fault_class in fault_classes:
         class_dir = raw_dir / str(fault_class)
@@ -74,6 +106,7 @@ def iter_raw_instances(
         for filepath in files:
             df = pd.read_parquet(filepath)
             df["instance_id"] = filepath.stem
+            df["well_id"] = parse_well_id(filepath.name)
             df["fault_class"] = fault_class
             df["source_type"] = parse_source_type(filepath.name)
             yield fault_class, df

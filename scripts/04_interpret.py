@@ -7,9 +7,10 @@ on the top SHAP features.
 Usage
 -----
     uv run scripts/04_interpret.py [--model {rf,xgb}] [--task {prediction,detection}]
-                                   [--skip-permutation]
+                                   [--eval {holdout,nested}] [--cv-group {instance_id,well_id}]
+                                   [--skip-permutation] [--no-normalization] [--n-jobs N]
 
-Outputs (tag = <model>_<task>)
+Outputs (tag = <model>_<task>_<norm>)
 ---------------------------------------
     results/metrics/<tag>_importance.json   full rankings, every method
     results/figures/<tag>_mdi.png           (rf)  or  <tag>_gain.png (xgb)
@@ -32,7 +33,7 @@ from flowml.interpretation import (
     shap_ranking,
     xgb_importance,
 )
-from flowml.training import load_task_data
+from flowml.train_val_test import load_task_data
 
 
 def main() -> None:
@@ -44,14 +45,15 @@ def main() -> None:
         help="skip permutation importance (the slowest method)",
     )
     args = parser.parse_args()
-    tag = run_tag(args.model, args.task)
+    normalized = not args.no_normalization
+    tag = run_tag(args.model, args.task, normalized, args.cv_group, args.eval)
     cmap = "Blues_r" if args.model == "rf" else "Oranges_r"
 
     model_path = MODELS_DIR / f"{tag}.joblib"
     if not model_path.exists():
         sys.exit(
             f"{model_path} not found. Train first:\n"
-            f"  uv run scripts/02_train.py --model {args.model} "
+            f"  uv run scripts/02_train_val_test.py --model {args.model} "
             f"--task {args.task}"
         )
     pipe = joblib.load(model_path)
@@ -59,7 +61,7 @@ def main() -> None:
     clf = pipe.named_steps["clf"]
 
     print(f"Interpretation — {tag}")
-    data = load_task_data(args.task)
+    data = load_task_data(args.task, normalized, args.cv_group)
     X_imputed = pipe.named_steps["imputer"].transform(data.X)
     rankings: dict[str, dict] = {}
 
@@ -92,7 +94,7 @@ def main() -> None:
     else:
         print("\n[2/3] Permutation importance (slow)...")
         perm_mean, perm_raw = permutation_ranking(
-            clf, X_imputed, encoder.transform(data.y), data.feature_cols
+            clf, X_imputed, encoder.transform(data.y), data.feature_cols, n_jobs=args.n_jobs
         )
         rankings["permutation"] = perm_mean.round(6).to_dict()
         plot_permutation_boxplot(

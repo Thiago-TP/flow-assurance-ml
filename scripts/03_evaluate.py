@@ -1,19 +1,24 @@
-"""Stage 3 — Metrics and confusion matrix from out-of-fold predictions.
+"""Stage 3 — Metrics and confusion matrix from held-out predictions.
 
-Consumes the OOF prediction table written by the training stage, so no model
-is refit here. Writes the metrics JSON (global, per fold, per class) and the
+Consumes the evaluation table written by stage 2 (test predictions of the
+holdout split, or outer-fold predictions of the nested CV), so no model is
+refit here. Writes the metrics JSON (global, per fold, per class) and the
 row-normalized confusion matrix.
 
-With ``--grouping hydrate`` the stored predictions are collapsed onto Normal /
-Other Problem / Hydrate before scoring, which measures how well a model trained
-on the full class set serves the coarser triage question.
+With ``--class-grouping hydrate`` the stored predictions are collapsed onto
+Normal / Other Problem / Hydrate before scoring, which measures how well a
+model trained on the full class set serves the coarser triage question.
+``--class-grouping custom`` applies the user-defined ``CUSTOM_CLASS_GROUPING``
+from ``config.py`` instead.
 
 Usage
 -----
     uv run scripts/03_evaluate.py [--model {rf,xgb}] [--task {prediction,detection}]
-                                  [--grouping {none,hydrate}]
+                                  [--class-grouping {none,hydrate,custom}]
+                                  [--eval {holdout,nested}]
+                                  [--cv-group {instance_id,well_id}] [--no-normalization]
 
-Outputs (tag = <model>_<task>, suffixed with _<grouping> when grouping)
+Outputs (tag = <model>_<task>_<norm>, suffixed with _<class-grouping> when grouping)
 --------------------------------------------------------------------------------
     results/metrics/<tag>_metrics.json
     results/figures/<tag>_confusion_matrix.png
@@ -28,7 +33,6 @@ from flowml.cli import add_class_grouping_arg, run_parser, run_tag
 from flowml.config import (
     FAULT_CLASSES,
     FIGURES_DIR,
-    HYDRATE_GROUP_NAMES,
     METRICS_DIR,
     WINDOW_CLASSES,
 )
@@ -38,7 +42,7 @@ from flowml.evaluation import (
     per_fold_metrics,
     plot_confusion_matrix,
 )
-from flowml.training import group_labels
+from flowml.train_val_test import group_labels, grouping_label_map
 
 
 def main() -> None:
@@ -47,33 +51,34 @@ def main() -> None:
     add_class_grouping_arg(parser)
     args = parser.parse_args()
 
-    source_tag = run_tag(args.model, args.task)
-    oof_path = METRICS_DIR / f"{source_tag}_oof.parquet"
-    if not oof_path.exists():
+    source_tag = run_tag(args.model, args.task, not args.no_normalization, args.cv_group, args.eval)
+    eval_path = METRICS_DIR / f"{source_tag}_eval.parquet"
+    if not eval_path.exists():
         sys.exit(
-            f"{oof_path} not found. Train first:\n"
-            f"  uv run scripts/02_train.py --model {args.model} "
+            f"{eval_path} not found. Train first:\n"
+            f"  uv run scripts/02_train_val_test.py --model {args.model} "
             f"--task {args.task}"
         )
-    oof = pd.read_parquet(oof_path)
+    preds = pd.read_parquet(eval_path)
 
-    if args.grouping == "none":
+    if args.class_grouping == "none":
         tag = source_tag
         label_map = FAULT_CLASSES if args.task == "prediction" else WINDOW_CLASSES
     else:
-        tag = f"{source_tag}_{args.grouping}"
-        label_map = HYDRATE_GROUP_NAMES
-        oof["y_true"] = group_labels(oof["y_true"].to_numpy(), args.grouping)
-        oof["y_pred"] = group_labels(oof["y_pred"].to_numpy(), args.grouping)
+        tag = f"{source_tag}_{args.class_grouping}"
+        label_map = grouping_label_map(args.class_grouping)
+        preds["y_true"] = group_labels(preds["y_true"].to_numpy(), args.class_grouping)
+        preds["y_pred"] = group_labels(preds["y_pred"].to_numpy(), args.class_grouping)
 
-    y_true, y_pred = oof["y_true"].to_numpy(), oof["y_pred"].to_numpy()
+    y_true, y_pred = preds["y_true"].to_numpy(), preds["y_pred"].to_numpy()
 
     metrics = {
         "tag": tag,
-        "grouping": args.grouping,
-        "n_windows": len(oof),
+        "class_grouping": args.class_grouping,
+        "evaluation": args.eval,
+        "n_windows": len(preds),
         "global": global_metrics(y_true, y_pred),
-        "per_fold_f1_macro": per_fold_metrics(oof),
+        "per_fold_f1_macro": per_fold_metrics(preds),
         "per_class": per_class_metrics(y_true, y_pred, label_map),
     }
 

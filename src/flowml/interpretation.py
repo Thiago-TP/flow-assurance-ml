@@ -95,7 +95,11 @@ def xgb_importance(xgb, feature_cols: list[str]) -> dict[str, pd.Series]:
 
 
 def permutation_ranking(
-    clf, X_imputed: np.ndarray, y: np.ndarray, feature_cols: list[str]
+    clf,
+    X_imputed: np.ndarray,
+    y: np.ndarray,
+    feature_cols: list[str],
+    n_jobs: int = N_JOBS,
 ) -> tuple[pd.Series, np.ndarray]:
     """Rank features by F1-macro drop under feature shuffling.
 
@@ -112,6 +116,8 @@ def permutation_ranking(
         Labels in the encoding the classifier was fit with.
     feature_cols : list[str]
         Feature names aligned with the matrix.
+    n_jobs : int
+        Parallel workers for the shuffles.
 
     Returns
     -------
@@ -127,7 +133,7 @@ def permutation_ranking(
         n_repeats=PERM_REPEATS,
         scoring="f1_macro",
         random_state=RANDOM_STATE,
-        n_jobs=N_JOBS,
+        n_jobs=n_jobs,
     )
     mean = pd.Series(result.importances_mean, index=feature_cols).sort_values(ascending=False)
     return mean, result.importances

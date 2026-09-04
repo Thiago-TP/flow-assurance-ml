@@ -7,18 +7,19 @@ when its parquet already exists, unless ``--rebuild-features`` is given.
 Usage
 -----
     uv run main.py [--model {rf,xgb}] [--task {prediction,detection}]
-                   [--filter {gaussian,statistical,none}] [--grouping {none,hydrate}]
-                   [--max-instances N] [--rebuild-features]
+                   [--class-grouping {none,hydrate,custom}] [--eval {holdout,nested}]
+                   [--cv-group {instance_id,well_id}] [--no-normalization]
+                   [--n-jobs N] [--max-instances N] [--rebuild-features] [--verbose]
                    [--skip-permutation] [--top-n N] [--depths 2,3,4,5,6]
 
-``--grouping`` reaches the scoring stages (3 and 5) only: features and the
-ensemble are always built on the full class set.
+``--class-grouping`` reaches the scoring stages (3 and 5) only: features and
+the ensemble are always built on the full class set.
 
 Examples
 --------
     uv run main.py                          # full fault-prediction pipeline (XGB)
     uv run main.py --max-instances 3        # quick smoke test of every stage
-    uv run main.py --model rf --task detection --filter gaussian
+    uv run main.py --model rf --task detection
 """
 
 import subprocess
@@ -80,10 +81,23 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    common = ["--filter", args.filter_type]
-    modeled = [*common, "--model", args.model, "--task", args.task]
+    common = ["--verbose"] if args.verbose else []
+    if args.no_normalization:
+        common.append("--no-normalization")
+    common += ["--n-jobs", str(args.n_jobs)]
+    modeled = [
+        *common,
+        "--model",
+        args.model,
+        "--task",
+        args.task,
+        "--cv-group",
+        args.cv_group,
+        "--eval",
+        args.eval,
+    ]
 
-    parquet = features_path(args.filter_type)
+    parquet = features_path(not args.no_normalization)
     if parquet.exists() and not args.rebuild_features:
         print(f"Stage 1 skipped: {parquet} already exists (use --rebuild-features).")
     else:
@@ -92,9 +106,9 @@ def main() -> None:
             stage1_args += ["--max-instances", str(args.max_instances)]
         run_stage("01_build_features.py", stage1_args)
 
-    grouped = [*modeled, "--grouping", args.grouping]
+    grouped = [*modeled, "--class-grouping", args.class_grouping]
 
-    run_stage("02_train.py", modeled)
+    run_stage("02_train_val_test.py", modeled)
     run_stage("03_evaluate.py", grouped)
 
     stage4_args = list(modeled)

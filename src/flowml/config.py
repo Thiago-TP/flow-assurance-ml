@@ -20,7 +20,39 @@ RESULTS_DIR = PACKAGE_ROOT / "results"
 MODELS_DIR = RESULTS_DIR / "models"
 METRICS_DIR = RESULTS_DIR / "metrics"
 FIGURES_DIR = RESULTS_DIR / "figures"
-FEATURES_PATH = DATA_DIR / "features.parquet"
+
+
+def norm_suffix(normalized: bool) -> str:
+    """Artifact-name suffix for the normalization status of the features.
+
+    Parameters
+    ----------
+    normalized : bool
+        Whether the features were built from per-instance z-scored sensors.
+
+    Returns
+    -------
+    str
+        ``"zscore"`` or ``"raw"``.
+    """
+    return "zscore" if normalized else "raw"
+
+
+def features_path(normalized: bool = True) -> Path:
+    """Features parquet path for the given normalization status.
+
+    Parameters
+    ----------
+    normalized : bool
+        Whether the features were built from per-instance z-scored sensors.
+
+    Returns
+    -------
+    Path
+        ``data/features_zscore.parquet`` or ``data/features_raw.parquet``.
+    """
+    return DATA_DIR / f"features_{norm_suffix(normalized)}.parquet"
+
 
 # -- 3W dataset classes -------------------------------------------------------
 
@@ -35,6 +67,20 @@ FAULT_CLASSES = {
     7: "PCK Scaling",
     8: "Hydrate in Production Line",
     9: "Hydrate in Service Line",
+}
+
+# Well operational status codes of the 3W ``state`` column
+# (Table 5 of the 3W Dataset 2.0.0 paper, arXiv:2507.01048).
+WELL_STATES = {
+    0: "Open",
+    1: "Shut-In",
+    2: "Flushing Diesel",
+    3: "Flushing Gas",
+    4: "Bullheading",
+    5: "Closed With Diesel",
+    6: "Closed With Gas",
+    7: "Restart",
+    8: "Depressurization",
 }
 
 # Window-state labels: 0 = normal, 1-9 = active event, 101-109 = transient.
@@ -54,7 +100,7 @@ WINDOW_CLASSES = {
 # collapses into a single "Other Problem" group. Transient labels (101-109)
 # join the group of their active counterpart.
 CLASS_GROUPINGS = ("none", "hydrate", "custom")
-HYDRATE_GROUPING: dict[int, str] = {
+HYDRATE_CLASS_GROUPING: dict[int, str] = {
     0: "Normal",
     1: "Other Problem",
     2: "Other Problem",
@@ -66,7 +112,7 @@ HYDRATE_GROUPING: dict[int, str] = {
     8: "Hydrate",
     9: "Hydrate",
 }
-CUSTOM_GROUPING: dict[int, str] = {
+CUSTOM_CLASS_GROUPING: dict[int, str] = {
     0: "",
     1: "",
     2: "",
@@ -121,6 +167,7 @@ FEATURE_STATS = [
 
 META_COLS = [
     "instance_id",
+    "well_id",
     "fault_class",
     "window_label",
     "source_type",
@@ -130,13 +177,18 @@ META_COLS = [
 # -- Modeling -----------------------------------------------------------------
 
 RANDOM_STATE = 42
-CV_GROUPINGS = ("instance_id", "well_id")
-CV_GROUPING = "instance_id"  # GroupKFold groups by instance_id
-CV_SPLITS = 5  # GroupKFold folds (grouped by instance_id)
-N_SPLITS_CV = min(2, CV_SPLITS)  # GroupKFold folds (grouped by instance_id)
+CV_GROUPINGS = ("instance_id", "well_id")  # columns GroupKFold can group by
+CV_GROUPING = "instance_id"  # default GroupKFold grouping column
+CV_SPLITS = 5  # GroupKFold folds
+N_SPLITS_CV = max(2, CV_SPLITS)  # GroupKFold folds (hyperparameter search)
 N_ITER_SEARCH = 10  # RandomizedSearchCV iterations
+
+EVAL_MODES = ("holdout", "nested")
+EVAL_MODE = "holdout"  # default evaluation protocol
+TEST_SIZE = 0.2  # group fraction held out for testing (holdout evaluation)
+N_SPLITS_OUTER = 5  # outer GroupKFold folds (nested evaluation)
 N_JOBS = max(
-    0,
+    1,
     min(6, os.cpu_count() - 2),  # parallel workers (keep below core count to preserve RAM)
 )
 
