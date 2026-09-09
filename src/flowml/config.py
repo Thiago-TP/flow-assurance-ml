@@ -99,7 +99,7 @@ WINDOW_CLASSES = {
 # covers faults 8 and 9 (production and service line); every other fault
 # collapses into a single "Other Problem" group. Transient labels (101-109)
 # join the group of their active counterpart.
-CLASS_GROUPINGS = ("none", "hydrate", "custom")
+CLASS_GROUPINGS = ("standard", "hydrate", "custom")
 HYDRATE_CLASS_GROUPING: dict[int, str] = {
     0: "Normal",
     1: "Other Problem",

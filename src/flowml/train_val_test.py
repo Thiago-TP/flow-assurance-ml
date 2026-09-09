@@ -74,7 +74,7 @@ def _grouping_map(grouping: str) -> dict[int, str]:
     Parameters
     ----------
     grouping : str
-        ``"hydrate"`` or ``"custom"`` (``"none"`` has no map).
+        ``"hydrate"`` or ``"custom"`` (``"standard"`` has the original map).
 
     Returns
     -------

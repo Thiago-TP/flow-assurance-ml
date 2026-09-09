@@ -61,7 +61,7 @@ def main() -> None:
         )
     preds = pd.read_parquet(eval_path)
 
-    if args.class_grouping == "none":
+    if args.class_grouping == "standard":
         tag = source_tag
         label_map = FAULT_CLASSES if args.task == "prediction" else WINDOW_CLASSES
     else:

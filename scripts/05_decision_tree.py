@@ -343,7 +343,7 @@ def main() -> None:
 
     for name, y_train, collapse in strategies:
         result = results[name]
-        artifact = dtag if args.class_grouping == "none" else f"{dtag}_{name}"
+        artifact = dtag if args.class_grouping == "standard" else f"{dtag}_{name}"
 
         pipe = make_tree_pipeline(result["best_depth"])
         pipe.fit(X_tv, y_train[trainval_idx])
