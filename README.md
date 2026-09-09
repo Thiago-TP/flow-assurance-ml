@@ -117,7 +117,7 @@ artifact tags.
 
 ## Dataset visualization
 
-Independent of the modeling pipeline, stage 0 plots the raw dataset itself
+Independent of the modeling pipeline, stage 0 plots the raw dataset itself as available in the 3W repository
 (real instances only — simulated and hand-drawn ones are skipped):
 
 ```bash
@@ -132,6 +132,10 @@ uv run scripts/00_visualize_dataset.py          # add --verbose for per-instance
 - `results/figures/faults_per_well.pdf` — every well as one line on a shared
   time axis, each recorded instance as a colored segment ("nick") whose color
   is the fault class and whose length is the instance duration.
+- `results/figures/well_<n>_history.pdf` - one PDF per well history, 
+  one page per feature (sensor, state). Instances of a same well are stitched 
+  together in time and the well operational status (`state`) and label 
+  (`fault`) color-banded
 
 ## Class groupings
 
