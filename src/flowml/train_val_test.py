@@ -319,6 +319,7 @@ def search_hyperparameters(
         verbose=2 if verbose else 0,
         refit=True,
         return_train_score=True,
+        error_score="raise",
     )
 
     fit_params = {}
