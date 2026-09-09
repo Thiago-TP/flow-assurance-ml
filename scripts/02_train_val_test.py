@@ -72,7 +72,9 @@ def main() -> None:
 
     evaluation: dict = {"mode": args.eval}
     if args.eval == "holdout":
-        print(f"\n[2/3] Holdout evaluation (grouped test split + GroupKFold({N_SPLITS_CV}) search)...")
+        print(
+            f"\n[2/3] Holdout evaluation (grouped test split + GroupKFold({N_SPLITS_CV}) search)..."
+        )
         search, encoder, eval_frame, info = holdout_evaluation(
             args.model, data, n_jobs=args.n_jobs, verbose=args.verbose
         )
