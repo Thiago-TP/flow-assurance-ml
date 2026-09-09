@@ -14,7 +14,7 @@ from ``config.py`` instead.
 Usage
 -----
     uv run scripts/03_evaluate.py [--model {rf,xgb}] [--task {prediction,detection}]
-                                  [--class-grouping {none,hydrate,custom}]
+                                  [--class-grouping {standard,hydrate,custom}]
                                   [--eval {holdout,nested}]
                                   [--cv-group {instance_id,well_id}] [--no-normalization]
 

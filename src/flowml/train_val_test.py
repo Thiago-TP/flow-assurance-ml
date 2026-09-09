@@ -131,14 +131,14 @@ def group_labels(y: np.ndarray, grouping: str) -> np.ndarray:
     y : np.ndarray
         Original integer labels.
     grouping : str
-        ``"none"`` (returns ``y`` unchanged), ``"hydrate"`` or ``"custom"``.
+        ``"standard"`` (returns ``y`` unchanged), ``"hydrate"`` or ``"custom"``.
 
     Returns
     -------
     np.ndarray
         Grouped labels, same shape as ``y``.
     """
-    if grouping == "none":
+    if grouping == "standard":
         return y
     mapping = _grouping_map(grouping)
 
@@ -307,6 +307,7 @@ def search_hyperparameters(
     """
     pipe, grid = make_pipeline(model_type, n_jobs)
     y_enc = encoder.transform(data.y)
+    print(f"Labels {np.unique(data.y)} = {encoder.classes_} -> {np.unique(y_enc)}")
 
     search = RandomizedSearchCV(
         estimator=pipe,
@@ -345,9 +346,7 @@ def subset_task_data(data: TaskData, idx: np.ndarray) -> TaskData:
     TaskData
         The restricted dataset (feature columns and label map unchanged).
     """
-    return replace(
-        data, X=data.X[idx], y=data.y[idx], groups=data.groups[idx], n_windows=len(idx)
-    )
+    return replace(data, X=data.X[idx], y=data.y[idx], groups=data.groups[idx], n_windows=len(idx))
 
 
 def holdout_split(data: TaskData) -> tuple[np.ndarray, np.ndarray]:
@@ -460,9 +459,7 @@ def nested_evaluation(
     outer = GroupKFold(n_splits=N_SPLITS_OUTER)
     parts, records = [], []
 
-    for fold, (train_idx, test_idx) in enumerate(
-        outer.split(data.X, data.y, data.groups), start=1
-    ):
+    for fold, (train_idx, test_idx) in enumerate(outer.split(data.X, data.y, data.groups), start=1):
         print(f"  Outer fold {fold}/{N_SPLITS_OUTER}: inner search...")
         train = subset_task_data(data, train_idx)
         encoder = LabelEncoder().fit(train.y)
@@ -486,9 +483,7 @@ def nested_evaluation(
         records.append(
             {
                 "fold": fold,
-                "best_params": {
-                    k.removeprefix("clf__"): v for k, v in search.best_params_.items()
-                },
+                "best_params": {k.removeprefix("clf__"): v for k, v in search.best_params_.items()},
                 "val_f1_macro": round(float(search.best_score_), 4),
                 "test_f1_macro": round(float(f1), 4),
                 "n_test_windows": len(test_idx),

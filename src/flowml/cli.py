@@ -109,10 +109,10 @@ def add_class_grouping_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--class-grouping",
         choices=CLASS_GROUPINGS,
-        default="none",
+        default="standard",
         help=(
             "collapse classes before scoring: hydrate = Normal / Other Problem / Hydrate; "
-            "custom = user-defined CUSTOM_CLASS_GROUPING from config.py (default: none)"
+            "custom = user-defined CUSTOM_CLASS_GROUPING from config.py (default: standard)"
         ),
     )
 

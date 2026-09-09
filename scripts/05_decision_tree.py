@@ -24,7 +24,7 @@ grouped truth, so their numbers are directly comparable:
 Usage
 -----
     uv run scripts/05_decision_tree.py [--model {rf,xgb}] [--task {prediction,detection}]
-                                       [--class-grouping {none,hydrate,custom}]
+                                       [--class-grouping {standard,hydrate,custom}]
                                        [--eval {holdout,nested}]
                                        [--cv-group {instance_id,well_id}] [--no-normalization]
                                        [--top-n N] [--depths 2,3,4,5,6]
@@ -273,7 +273,7 @@ def main() -> None:
         dtag = f"{dtag}_wellcv"
     if args.eval == "nested":
         dtag = f"{dtag}_nested"
-    if args.class_grouping != "none":
+    if args.class_grouping != "standard":
         dtag = f"{dtag}_{args.class_grouping}"
 
     importance_path = METRICS_DIR / f"{tag}_importance.json"
@@ -304,7 +304,7 @@ def main() -> None:
         f"{pd.Series(data.groups[test_idx]).nunique()} test groups"
     )
 
-    if args.class_grouping == "none":
+    if args.class_grouping == "standard":
         label_map = FAULT_CLASSES if args.task == "prediction" else WINDOW_CLASSES
         y_eval = data.y
         strategies = [("full", data.y, False)]

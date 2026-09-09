@@ -81,16 +81,16 @@ uv run scripts/05_decision_tree.py  # compact tree on the top SHAP features
 Every stage takes the same switches, and each combination writes its artifacts
 under a unique tag:
 
-| Switch                 | Choices                           | Default        | Stages |
-| ---------------------- | --------------------------------- | -------------- | ------ |
-| `--model`            | `rf`, `xgb`                   | `xgb`        | 2-5    |
-| `--task`             | `prediction`, `detection`     | `prediction` | 2-5    |
-| `--class-grouping`   | `none`, `hydrate`, `custom` | `none`       | 3, 5   |
-| `--eval`             | `holdout`, `nested`           | `holdout`    | 2-5    |
-| `--cv-group`         | `instance_id`, `well_id`      | `instance_id` | 2-5   |
-| `--no-normalization` | flag                              | off            | 1-5    |
-| `--n-jobs`           | int (`-1` = all cores)          | `min(6, cores - 2)` | 2, 4 |
-| `--verbose`          | flag                              | off            | 1-5    |
+| Switch                 | Choices                               | Default               | Stages |
+| ---------------------- | ------------------------------------- | --------------------- | ------ |
+| `--model`            | `rf`, `xgb`                       | `xgb`               | 2-5    |
+| `--task`             | `prediction`, `detection`         | `prediction`        | 2-5    |
+| `--class-grouping`   | `standard`, `hydrate`, `custom` | `standard`          | 3, 5   |
+| `--eval`             | `holdout`, `nested`               | `holdout`           | 2-5    |
+| `--cv-group`         | `instance_id`, `well_id`          | `instance_id`       | 2-5    |
+| `--no-normalization` | flag                                  | off                   | 1-5    |
+| `--n-jobs`           | int (`-1` = all cores)              | `min(6, cores - 2)` | 2, 4   |
+| `--verbose`          | flag                                  | off                   | 1-5    |
 
 `--no-normalization` skips the per-instance z-score in stage 1 and makes every
 stage read and write the `_raw` artifacts instead of `_zscore`, so both
@@ -207,8 +207,7 @@ flowchart LR
 ## Methodology notes
 
 - **Grouped splits everywhere**, by `instance_id` (default) so windows of one
-  recording never split across train/test, or by `well_id` (`--cv-group
-  well_id`) so all recordings of one well stay on the same side.
+  recording never split across train/test, or by `well_id` (`--cv-group well_id`) so all recordings of one well stay on the same side.
 - **Selection kept separate from evaluation**: hyperparameters are chosen on
   train+val only (GroupKFold search) and the winner is scored on data the
   search never saw — a grouped holdout test set by default, or nested CV with

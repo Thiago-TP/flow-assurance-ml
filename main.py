@@ -7,7 +7,7 @@ when its parquet already exists, unless ``--rebuild-features`` is given.
 Usage
 -----
     uv run main.py [--model {rf,xgb}] [--task {prediction,detection}]
-                   [--class-grouping {none,hydrate,custom}] [--eval {holdout,nested}]
+                   [--class-grouping {standard,hydrate,custom}] [--eval {holdout,nested}]
                    [--cv-group {instance_id,well_id}] [--no-normalization]
                    [--n-jobs N] [--max-instances N] [--rebuild-features] [--verbose]
                    [--skip-permutation] [--top-n N] [--depths 2,3,4,5,6]

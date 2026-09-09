@@ -179,9 +179,9 @@ META_COLS = [
 RANDOM_STATE = 42
 CV_GROUPINGS = ("instance_id", "well_id")  # columns GroupKFold can group by
 CV_GROUPING = "instance_id"  # default GroupKFold grouping column
-CV_SPLITS = 5  # GroupKFold folds
+CV_SPLITS = 2  # GroupKFold folds
 N_SPLITS_CV = max(2, CV_SPLITS)  # GroupKFold folds (hyperparameter search)
-N_ITER_SEARCH = 10  # RandomizedSearchCV iterations
+N_ITER_SEARCH = 5  # RandomizedSearchCV iterations
 
 EVAL_MODES = ("holdout", "nested")
 EVAL_MODE = "holdout"  # default evaluation protocol
