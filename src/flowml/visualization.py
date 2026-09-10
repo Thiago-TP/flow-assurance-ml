@@ -868,7 +868,7 @@ def plot_well_history(
     duplicated = int(spans["n_samples"].sum() - len(timeline))
     faults = sorted(spans["fault_class"].unique())
     subtitle = (
-        f"{len(spans)} instances ({overlaps} overlapping) | "
+        f"{len(spans)} instances ({overlaps + 1} overlapping) | "
         f"{len(timeline):,} unique timestamps ({duplicated:,} deduplicated) | "
         f"{spans['start'].min():%Y-%m-%d} to {spans['end'].max():%Y-%m-%d} | "
         f"fault folders: {', '.join(FAULT_CLASSES[f] for f in faults)}"
