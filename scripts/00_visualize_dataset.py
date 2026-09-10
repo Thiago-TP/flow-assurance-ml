@@ -1,9 +1,10 @@
 """Stage 0 (optional) — Visualize the raw 3W dataset.
 
 Standalone of the modeling pipeline. Renders, in order, every real instance of
-every fault (one multi-page PDF per fault), the faults-per-well timeline, and
-the joined history of every well (one multi-page PDF per well). Simulated and
-hand-drawn instances are never plotted.
+every fault (one multi-page PDF per fault), the timeline of the instances of
+every well (one page per well), and the joined history of every well (one
+multi-page PDF per well). Simulated and hand-drawn instances are never
+plotted.
 
 ``--well`` narrows the well histories to a few wells, and ``--skip-faults``
 drops the two per-fault stages, which together make inspecting one well quick.
@@ -16,7 +17,7 @@ Usage
 Outputs
 -------
     results/figures/fault_<n>_real_instances.pdf   one per fault class
-    results/figures/faults_per_well.pdf
+    results/figures/faults_per_well.pdf            one page per well
     results/figures/well_<id>_history.pdf          one per well
 """
 

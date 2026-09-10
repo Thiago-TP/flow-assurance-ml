@@ -129,9 +129,16 @@ uv run scripts/00_visualize_dataset.py          # add --verbose for per-instance
   (`class`) as colored bands, then every sensor with data, shaded by label
   (green = normal, yellow = transient, red = active fault, grey = unlabeled)
   with units from the 3W `dataset.ini` and the total variation (Δ) per panel.
-- `results/figures/faults_per_well.pdf` — every well as one line on a shared
-  time axis, each recorded instance as a colored segment ("nick") whose color
-  is the fault class and whose length is the instance duration.
+- `results/figures/faults_per_well.pdf` — one page per well: every instance
+  recorded on it as a horizontal bar from its first to its last timestamp,
+  labeled with the timestamp of its filename and stacked on top of the
+  instances it overlaps in time, so the overlap that leaks between train and
+  test is visible per well. Bar hue is the fault-class folder; its tint says
+  how far the fault got inside that window (full once the steady state is
+  reached, lighter when only the transient state is, lightest when no fault
+  is reached at all), and the legend names hue and tint together, one entry
+  per color the page draws. The months of silence between recordings collapse
+  to narrow marked blanks, the time scale staying uniform everywhere else.
 - `results/figures/well_<n>_history.pdf` - one PDF per well history, 
   one page per feature (sensor, state). Instances of a same well are stitched 
   together in time and the well operational status (`state`) and label 
