@@ -31,7 +31,10 @@ from pathlib import Path
 
 from flowml.config import FAULT_CLASSES, RAW_DATA_DIR
 from flowml.visualization import (
+    plot_all_fault_signatures,
+    plot_fault,
     plot_faults_per_well,
+    plot_wells_histories,
 )
 
 
@@ -74,23 +77,23 @@ def main() -> None:
 
     if not args.skip_faults:
         stages = len(FAULT_CLASSES) + 2
-        # for fault_class, fault_name in FAULT_CLASSES.items():
-        #     print(f"\n[{fault_class + 1}/{stages}] {fault_name}...")
-        #     plot_fault(str(fault_class), raw_dir=args.raw_dir, verbose=args.verbose)
+        for fault_class, fault_name in FAULT_CLASSES.items():
+            print(f"\n[{fault_class + 1}/{stages}] {fault_name}...")
+            plot_fault(str(fault_class), raw_dir=args.raw_dir, verbose=args.verbose)
 
-        # print(f"\n[{stages - 1}/{stages}] Fault signatures...")
-        # plot_all_fault_signatures(raw_dir=args.raw_dir, verbose=args.verbose)
+        print(f"\n[{stages - 1}/{stages}] Fault signatures...")
+        plot_all_fault_signatures(raw_dir=args.raw_dir, verbose=args.verbose)
 
         print(f"\n[{stages}/{stages}] Faults per well...")
         plot_faults_per_well(raw_dir=args.raw_dir, verbose=args.verbose)
 
-    # print("\nWell histories...")
-    # plot_wells_histories(
-    #     args.well,
-    #     raw_dir=args.raw_dir,
-    #     max_points=args.max_points,
-    #     verbose=args.verbose,
-    # )
+    print("\nWell histories...")
+    plot_wells_histories(
+        args.well,
+        raw_dir=args.raw_dir,
+        max_points=args.max_points,
+        verbose=args.verbose,
+    )
 
     print(f"\nDone {datetime.now().astimezone():%Y-%m-%d %H:%M:%S}")
 
