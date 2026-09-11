@@ -17,8 +17,10 @@ Usage
                                   [--class-grouping {standard,hydrate,custom}]
                                   [--eval {holdout,nested}]
                                   [--cv-group {instance_id,well_id}] [--no-normalization]
+                                  [--allow-overlap]
 
-Outputs (tag = <model>_<task>_<norm>, suffixed with _<class-grouping> when grouping)
+Outputs (tag = <model>_<task>_<norm>, plus the suffixes of stage 2 and
+_<class-grouping> when grouping)
 --------------------------------------------------------------------------------
     results/metrics/<tag>_metrics.json
     results/figures/<tag>_confusion_matrix.png
@@ -51,7 +53,14 @@ def main() -> None:
     add_class_grouping_arg(parser)
     args = parser.parse_args()
 
-    source_tag = run_tag(args.model, args.task, not args.no_normalization, args.cv_group, args.eval)
+    source_tag = run_tag(
+        args.model,
+        args.task,
+        not args.no_normalization,
+        args.cv_group,
+        args.eval,
+        args.allow_overlap,
+    )
     eval_path = METRICS_DIR / f"{source_tag}_eval.parquet"
     if not eval_path.exists():
         sys.exit(

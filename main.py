@@ -9,7 +9,8 @@ Usage
     uv run main.py [--model {rf,xgb}] [--task {prediction,detection}]
                    [--class-grouping {standard,hydrate,custom}] [--eval {holdout,nested}]
                    [--cv-group {instance_id,well_id}] [--no-normalization]
-                   [--n-jobs N] [--max-instances N] [--rebuild-features] [--verbose]
+                   [--allow-overlap] [--n-jobs N] [--max-instances N]
+                   [--rebuild-features] [--verbose]
                    [--skip-permutation] [--top-n N] [--depths 2,3,4,5,6]
 
 ``--class-grouping`` reaches the scoring stages (3 and 5) only: features and
@@ -84,6 +85,8 @@ def main() -> None:
     common = ["--verbose"] if args.verbose else []
     if args.no_normalization:
         common.append("--no-normalization")
+    if args.allow_overlap:
+        common.append("--allow-overlap")
     common += ["--n-jobs", str(args.n_jobs)]
     modeled = [
         *common,
@@ -97,7 +100,7 @@ def main() -> None:
         args.eval,
     ]
 
-    parquet = features_path(not args.no_normalization)
+    parquet = features_path(not args.no_normalization, args.allow_overlap)
     if parquet.exists() and not args.rebuild_features:
         print(f"Stage 1 skipped: {parquet} already exists (use --rebuild-features).")
     else:

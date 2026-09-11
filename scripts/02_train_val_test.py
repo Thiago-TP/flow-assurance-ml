@@ -19,10 +19,12 @@ Usage
     uv run scripts/02_train_val_test.py [--model {rf,xgb}] [--task {prediction,detection}]
                                         [--eval {holdout,nested}]
                                         [--cv-group {instance_id,well_id}]
-                                        [--no-normalization] [--n-jobs N] [--verbose]
+                                        [--no-normalization] [--allow-overlap]
+                                        [--n-jobs N] [--verbose]
 
-Outputs (tag = <model>_<task>_<norm>; ``_wellcv`` appended with --cv-group
-well_id, ``_nested`` with --eval nested)
+Outputs (tag = <model>_<task>_<norm>; ``_overlap`` appended with
+--allow-overlap, ``_wellcv`` with --cv-group well_id, ``_nested`` with --eval
+nested)
 ---------------------------------------
     results/models/<tag>.joblib             fitted imputer+classifier pipeline
     results/models/<tag>_label_encoder.joblib
@@ -59,12 +61,12 @@ def main() -> None:
     """Parse arguments, run the evaluation protocol, and write the artifacts."""
     args = run_parser(__doc__.splitlines()[0]).parse_args()
     normalized = not args.no_normalization
-    tag = run_tag(args.model, args.task, normalized, args.cv_group, args.eval)
+    tag = run_tag(args.model, args.task, normalized, args.cv_group, args.eval, args.allow_overlap)
 
     print(f"Training {tag} | started {datetime.now().astimezone():%Y-%m-%d %H:%M:%S}")
 
     print("\n[1/3] Loading dataset...")
-    data = load_task_data(args.task, normalized, args.cv_group)
+    data = load_task_data(args.task, normalized, args.cv_group, args.allow_overlap)
     print(
         f"  {data.n_windows:,} windows | {len(data.feature_cols)} features "
         f"| {pd.Series(data.groups).nunique()} groups ({args.cv_group})"
@@ -116,6 +118,7 @@ def main() -> None:
         "model": args.model,
         "task": args.task,
         "normalization": norm_suffix(normalized),
+        "overlapping_instances": "kept" if args.allow_overlap else "dropped",
         "cv_group": args.cv_group,
         "trained_at": datetime.now().astimezone().isoformat(),
         "dataset": {

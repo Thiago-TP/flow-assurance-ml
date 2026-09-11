@@ -27,15 +27,16 @@ Usage
                                        [--class-grouping {standard,hydrate,custom}]
                                        [--eval {holdout,nested}]
                                        [--cv-group {instance_id,well_id}] [--no-normalization]
-                                       [--top-n N] [--depths 2,3,4,5,6]
+                                       [--allow-overlap] [--top-n N] [--depths 2,3,4,5,6]
 
 ``--model`` selects whose SHAP ranking to distill, not the tree itself.
 ``--eval`` selects which stage-2 run's ranking to read; the tree itself is
 always evaluated on the seeded grouped holdout split.
 
-Outputs (dtag = dt_<task>_<norm>_from_<model>, plus _wellcv with well-level CV,
-_nested when reading a nested run's ranking, and _<class-grouping> when
-grouping; artifacts are strategy-suffixed when a grouping runs both strategies)
+Outputs (dtag = dt_<task>_<norm>[_overlap]_from_<model>, plus _wellcv with
+well-level CV, _nested when reading a nested run's ranking, and
+_<class-grouping> when grouping; artifacts are strategy-suffixed when a
+grouping runs both strategies)
 --------------------------------------------------------------------------------
     results/models/<dtag>.joblib             imputer+tree pipeline fit on train+val
     results/metrics/<dtag>_metrics.json      validation depth sweep + test report
@@ -68,6 +69,7 @@ from flowml.config import (
     RANDOM_STATE,
     WINDOW_CLASSES,
     norm_suffix,
+    overlap_suffix,
 )
 from flowml.evaluation import global_metrics, per_class_metrics, plot_confusion_matrix
 from flowml.train_val_test import (
@@ -267,8 +269,11 @@ def main() -> None:
     depths = [int(d) for d in args.depths.split(",")]
 
     normalized = not args.no_normalization
-    tag = run_tag(args.model, args.task, normalized, args.cv_group, args.eval)
-    dtag = f"dt_{args.task}_{norm_suffix(normalized)}_from_{args.model}"
+    tag = run_tag(args.model, args.task, normalized, args.cv_group, args.eval, args.allow_overlap)
+    dtag = (
+        f"dt_{args.task}_{norm_suffix(normalized)}{overlap_suffix(args.allow_overlap)}"
+        f"_from_{args.model}"
+    )
     if args.cv_group == "well_id":
         dtag = f"{dtag}_wellcv"
     if args.eval == "nested":
@@ -292,7 +297,7 @@ def main() -> None:
     print(f"Decision tree — {dtag}")
     print(f"  Top {args.top_n} SHAP features ({args.model}): {top_features}")
 
-    data = load_task_data(args.task, normalized, args.cv_group)
+    data = load_task_data(args.task, normalized, args.cv_group, args.allow_overlap)
     col_idx = [data.feature_cols.index(f) for f in top_features]
     X = data.X[:, col_idx]
 

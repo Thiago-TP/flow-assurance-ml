@@ -8,9 +8,10 @@ Usage
 -----
     uv run scripts/04_interpret.py [--model {rf,xgb}] [--task {prediction,detection}]
                                    [--eval {holdout,nested}] [--cv-group {instance_id,well_id}]
-                                   [--skip-permutation] [--no-normalization] [--n-jobs N]
+                                   [--skip-permutation] [--no-normalization] [--allow-overlap]
+                                   [--n-jobs N]
 
-Outputs (tag = <model>_<task>_<norm>)
+Outputs (tag = <model>_<task>_<norm>, plus the suffixes of stage 2)
 ---------------------------------------
     results/metrics/<tag>_importance.json   full rankings, every method
     results/figures/<tag>_mdi.png           (rf)  or  <tag>_gain.png (xgb)
@@ -46,7 +47,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     normalized = not args.no_normalization
-    tag = run_tag(args.model, args.task, normalized, args.cv_group, args.eval)
+    tag = run_tag(args.model, args.task, normalized, args.cv_group, args.eval, args.allow_overlap)
     cmap = "Blues_r" if args.model == "rf" else "Oranges_r"
 
     model_path = MODELS_DIR / f"{tag}.joblib"
@@ -61,7 +62,7 @@ def main() -> None:
     clf = pipe.named_steps["clf"]
 
     print(f"Interpretation — {tag}")
-    data = load_task_data(args.task, normalized, args.cv_group)
+    data = load_task_data(args.task, normalized, args.cv_group, args.allow_overlap)
     X_imputed = pipe.named_steps["imputer"].transform(data.X)
     rankings: dict[str, dict] = {}
 

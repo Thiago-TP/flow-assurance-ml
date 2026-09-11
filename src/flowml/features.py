@@ -37,8 +37,10 @@ from flowml.config import (
 )
 from flowml.preprocessing import (
     clean_instance,
-    iter_raw_instances,
+    list_raw_instances,
+    load_raw_instances,
     normalize_instance,
+    select_instances,
 )
 
 
@@ -192,13 +194,16 @@ def build_features(
     raw_dir: Path = RAW_DATA_DIR,
     max_instances_per_class: int | None = None,
     normalize: bool = True,
+    allow_overlap: bool = False,
     verbose: bool = False,
 ) -> None:
     """Run the full raw -> features pass and write one parquet incrementally.
 
-    Instances are processed one at a time and flushed to disk through a
-    PyArrow writer, so peak memory stays at one instance regardless of
-    dataset size.
+    The real instances that overlap another of the same well are dropped
+    first (see ``preprocessing.select_instances``), unless ``allow_overlap``
+    is set. The remaining instances are processed one at a time and flushed
+    to disk through a PyArrow writer, so peak memory stays at one instance
+    regardless of dataset size.
 
     Parameters
     ----------
@@ -208,14 +213,24 @@ def build_features(
         Root of the 3W dataset.
     max_instances_per_class : int | None
         Cap per class for quick smoke tests; ``None`` processes everything.
+        The cap applies before the overlap rule, so a capped run may see
+        fewer overlaps than the full dataset has.
     normalize : bool
         Z-score each sensor per instance before windowing (default on).
+    allow_overlap : bool
+        Keep the overlapping real instances instead of dropping them
+        (default off).
     verbose : bool
-        Print per-class progress and the final summary (default off).
+        Print the overlap report, per-class progress and the final summary
+        (default off).
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if output_path.exists():
         output_path.unlink()
+
+    entries = list_raw_instances(raw_dir, list(FAULT_CLASSES), max_instances_per_class)
+    entries, overlap_table = select_instances(entries, allow_overlap, verbose)
+    n_overlapping = int((~overlap_table["kept"]).sum())
 
     writer: pq.ParquetWriter | None = None
     total_windows = 0
@@ -224,9 +239,7 @@ def build_features(
 
     try:
         current_class = None
-        for fault_class, df_raw in iter_raw_instances(
-            raw_dir, list(FAULT_CLASSES), max_instances_per_class
-        ):
+        for fault_class, df_raw in load_raw_instances(entries):
             if verbose and fault_class != current_class:
                 current_class = fault_class
                 print(f"  Class {fault_class}: {FAULT_CLASSES[fault_class]}")
@@ -257,6 +270,6 @@ def build_features(
     if verbose:
         print(
             f"\nDone: {total_windows:,} windows from {n_kept} instances "
-            f"({n_dropped} dropped by the quality filter)"
+            f"({n_overlapping} removed as overlapping, {n_dropped} dropped by the quality filter)"
         )
         print(f"  -> {output_path}")

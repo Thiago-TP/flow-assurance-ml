@@ -12,6 +12,7 @@ from flowml.config import (
     N_SPLITS_OUTER,
     TEST_SIZE,
     norm_suffix,
+    overlap_suffix,
 )
 from flowml.train_val_test import MODEL_TYPES, TASKS
 
@@ -43,6 +44,15 @@ def run_parser(description: str, with_model: bool = True) -> argparse.ArgumentPa
         help=(
             "skip per-instance z-score normalization: stage 1 builds raw features, "
             "later stages read and write the matching _raw artifacts"
+        ),
+    )
+    parser.add_argument(
+        "--allow-overlap",
+        action="store_true",
+        help=(
+            "keep the real instances that overlap another recording of the same well in "
+            "time; stage 1 drops them by default (they label the same samples twice), "
+            "and with the flag every stage reads and writes the matching _overlap artifacts"
         ),
     )
     parser.add_argument(
@@ -123,13 +133,16 @@ def run_tag(
     normalized: bool = True,
     cv_group: str = CV_GROUPING,
     eval_mode: str = EVAL_MODE,
+    allow_overlap: bool = False,
 ) -> str:
     """Compose the artifact-name tag identifying one training run.
 
     The tag covers every switch that changes what stage 2 produces: model,
-    task, normalization, CV grouping, and evaluation protocol. The defaults
-    (instance grouping, holdout evaluation) add no suffix; well-level grouping
-    appends ``_wellcv`` and nested evaluation ``_nested`` so all runs coexist.
+    task, normalization, overlap rule, CV grouping, and evaluation protocol.
+    The defaults (overlapping instances dropped, instance grouping, holdout
+    evaluation) add no suffix; keeping overlapping instances appends
+    ``_overlap``, well-level grouping ``_wellcv`` and nested evaluation
+    ``_nested`` so all runs coexist.
 
     Parameters
     ----------
@@ -143,13 +156,17 @@ def run_tag(
         ``"instance_id"`` or ``"well_id"``.
     eval_mode : str
         ``"holdout"`` or ``"nested"``.
+    allow_overlap : bool
+        Whether the features keep the real instances overlapping another of
+        the same well.
 
     Returns
     -------
     str
-        E.g. ``"xgb_prediction_zscore"`` or ``"xgb_prediction_zscore_wellcv_nested"``.
+        E.g. ``"xgb_prediction_zscore"`` or
+        ``"xgb_prediction_zscore_overlap_wellcv_nested"``.
     """
-    tag = f"{model}_{task}_{norm_suffix(normalized)}"
+    tag = f"{model}_{task}_{norm_suffix(normalized)}{overlap_suffix(allow_overlap)}"
     if cv_group == "well_id":
         tag += "_wellcv"
     if eval_mode == "nested":

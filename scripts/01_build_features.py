@@ -1,19 +1,23 @@
 """Stage 1 — Build the windowed features parquet from the raw 3W dataset.
 
-Reads the raw per-instance parquet files, cleans each instance (bounded
-forward-fill + critical-sensor quality gate), z-scores it, and extracts the
-88 statistical features per 300 s window. Each row carries both task labels
-(``window_label`` and ``fault_class``), so one parquet serves both
-the detection and the prediction task.
+Reads the raw per-instance parquet files, drops the real instances that
+overlap another recording of the same well (unless ``--allow-overlap``),
+cleans each remaining instance (bounded forward-fill + critical-sensor quality
+gate), z-scores it, and extracts the 88 statistical features per 300 s window.
+Each row carries both task labels (``window_label`` and ``fault_class``), so
+one parquet serves both the detection and the prediction task.
 
 Usage
 -----
     uv run scripts/01_build_features.py [--max-instances N] [--raw-dir PATH]
-                                        [--no-normalization] [--verbose]
+                                        [--no-normalization] [--allow-overlap]
+                                        [--verbose]
 
 Output
 ------
-    data/features_zscore.parquet (or features_raw.parquet with --no-normalization)
+    data/features_zscore.parquet
+    (``raw`` replaces ``zscore`` with --no-normalization; ``_overlap`` is
+    appended with --allow-overlap, e.g. features_zscore_overlap.parquet)
 """
 
 from datetime import datetime
@@ -42,7 +46,7 @@ def main() -> None:
     args = parser.parse_args()
 
     normalize = not args.no_normalization
-    output_path = features_path(normalize)
+    output_path = features_path(normalize, args.allow_overlap)
     print(f"Building features from {args.raw_dir}")
     print(f"Started {datetime.now().astimezone():%Y-%m-%d %H:%M:%S}")
     build_features(
@@ -50,6 +54,7 @@ def main() -> None:
         raw_dir=args.raw_dir,
         max_instances_per_class=args.max_instances,
         normalize=normalize,
+        allow_overlap=args.allow_overlap,
         verbose=args.verbose,
     )
 

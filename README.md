@@ -11,7 +11,8 @@ flowchart LR
 
   subgraph S1["Dataset building (01_build_features.py)"]
     direction TB
-    A[("3W raw parquets<br/>1 file = 1 well instance")] --> B["clean<br/>ffill ≤ 60 s · quality gate"]
+    A[("3W raw parquets<br/>1 file = 1 well instance")] --> A2["drop overlapping instances<br/>(kept with --allow-overlap)"]
+    A2 --> B["clean<br/>ffill ≤ 60 s · quality gate"]
     B --> C["z-score per instance<br/>(skipped with --no-normalization)"]
     C --> D["window 300 s / step 150 s<br/>11 stats × 8 sensors = 88 features"]
     D --> E[("data/features_<norm>.parquet<br/>norm: zscore | raw<br/>labels: window_label + fault_class")]
@@ -89,12 +90,27 @@ under a unique tag:
 | `--eval`             | `holdout`, `nested`               | `holdout`           | 2-5    |
 | `--cv-group`         | `instance_id`, `well_id`          | `instance_id`       | 2-5    |
 | `--no-normalization` | flag                                  | off                   | 1-5    |
+| `--allow-overlap`    | flag                                  | off                   | 1-5    |
 | `--n-jobs`           | int (`-1` = all cores)              | `min(6, cores - 2)` | 2, 4   |
 | `--verbose`          | flag                                  | off                   | 1-5    |
 
 `--no-normalization` skips the per-instance z-score in stage 1 and makes every
 stage read and write the `_raw` artifacts instead of `_zscore`, so both
 feature sets and their runs coexist side by side.
+
+`--allow-overlap` keeps the real instances that overlap another recording of
+the same well in time. Stage 1 drops them by default: 3W instances are
+windows cut from one continuous recording, and where two of them overlap the
+shared samples enter the dataset twice — under different labels, since the
+end of one instance is the start of the next (a pressure labeled *active
+fault* in the first is *normal operation* in the second). Which instances go
+is decided exactly as `faults_per_well.pdf` stacks them (see *Dataset
+visualization*): every instance on stack level 2 or higher is removed, so the
+survivors of a well never overlap one another. Simulated and hand-drawn
+instances have no well and are never touched. With the flag, every stage
+reads and writes `_overlap` artifacts, so both datasets and their runs
+coexist; `--verbose` prints how many instances overlap and how many were
+removed, per well.
 
 `--eval` selects how the tuned model is evaluated. `holdout` (default) splits
 a grouped test set (`TEST_SIZE` = 20 % of the groups, seeded) off **before**
@@ -269,6 +285,10 @@ flowchart LR
 
 ## Methodology notes
 
+- **Overlapping instances dropped** before anything else (`--allow-overlap`
+  keeps them): two instances of one well that overlap in time carry the same
+  samples under different labels, so of every overlapping stack only the
+  bottom instance survives — the rule `faults_per_well.pdf` draws.
 - **Grouped splits everywhere**, by `instance_id` (default) so windows of one
   recording never split across train/test, or by `well_id` (`--cv-group well_id`) so all recordings of one well stay on the same side.
 - **Selection kept separate from evaluation**: hyperparameters are chosen on

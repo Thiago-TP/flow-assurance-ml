@@ -46,7 +46,7 @@ from flowml.config import (
     WELL_HISTORY_FIGURES_DIR,
     WELL_STATES,
 )
-from flowml.preprocessing import parse_source_type, parse_well_id
+from flowml.preprocessing import overlapping_mask, pack_lanes, parse_source_type, parse_well_id
 
 # Background colors for the class label of each stretch of a time series.
 LABEL_COLORS = {
@@ -1607,40 +1607,6 @@ def _text_width_pt(text: str, fontsize: float) -> float:
     return em * fontsize
 
 
-def _pack_lanes(starts: np.ndarray, ends: np.ndarray) -> np.ndarray:
-    """Stack overlapping instances, one lane per level of simultaneity.
-
-    Instances are placed in chronological order, each one taking the lowest
-    lane whose last instance has already ended; a new lane opens only when
-    every existing one is still busy. Two instances therefore share a lane
-    exactly when they do not overlap, so the number of lanes is the deepest
-    pile-up of the well and a chain of sliding windows alternates between
-    two lanes, its overlaps visible as the horizontal offset between them.
-
-    Parameters
-    ----------
-    starts, ends : np.ndarray
-        First and last timestamp of every instance, ``datetime64``.
-
-    Returns
-    -------
-    np.ndarray
-        Lane index (0-based) per instance, in the input order.
-    """
-    lane_of = np.zeros(len(starts), dtype=int)
-    lane_ends: list[np.datetime64] = []
-    for i in np.argsort(starts, kind="stable"):
-        for lane, lane_end in enumerate(lane_ends):
-            if starts[i] > lane_end:
-                lane_of[i] = lane
-                lane_ends[lane] = ends[i]  # starts are sorted, so this only grows
-                break
-        else:
-            lane_of[i] = len(lane_ends)
-            lane_ends.append(ends[i])
-    return lane_of
-
-
 def _recording_blocks(
     starts: np.ndarray, ends: np.ndarray, gap_hours: float, gap_share: float = 0.12
 ) -> pd.DataFrame:
@@ -1791,7 +1757,7 @@ def _plot_well_timeline(
     blocks = _recording_blocks(starts, ends, gap_hours)
     x0 = _block_positions(blocks, starts)
     x1 = _block_positions(blocks, ends)
-    lane_of = _pack_lanes(starts, ends)
+    lane_of = pack_lanes(starts, ends)
     n_lanes = int(lane_of.max()) + 1
 
     span = float(blocks["x0"].iloc[-1] + blocks["hours"].iloc[-1]) or 1.0
@@ -1880,13 +1846,7 @@ def _plot_well_timeline(
     ax.invert_yaxis()
     ax.tick_params(labelsize=tick_fontsize)
 
-    # An instance overlaps another when it starts before the latest end so far,
-    # which marks both members of the pair.
-    reach_before = np.maximum.accumulate(ends)
-    overlaps_earlier = starts[1:] < reach_before[:-1]
-    overlapping = np.zeros(len(rows), dtype=bool)
-    overlapping[1:] |= overlaps_earlier
-    overlapping[:-1] |= overlaps_earlier
+    overlapping = overlapping_mask(starts, ends)
 
     recorded = float(blocks["hours"].sum())
     faults = sorted(rows["fault_class"].unique())
@@ -1943,7 +1903,10 @@ def plot_faults_per_well(
     between train and test when the split is made per instance rather than
     per well. Bars wide enough carry the timestamp keying their filename
     (the ``*`` of ``WELL-000{well_id}_*.parquet``), which names the offending
-    instance outright.
+    instance outright. Stage 1 stacks the instances with the very same rule
+    (``preprocessing.pack_lanes``) and, unless ``--allow-overlap`` is given,
+    drops every instance above the bottom level, so the page also shows what
+    the default dataset leaves out.
 
     Recordings cover only a few percent of a well's calendar span, in bursts
     separated by months of silence, so the axis compresses those silences to
@@ -2007,7 +1970,7 @@ def plot_faults_per_well(
     per_well = {well_id: rows for well_id, rows in spans.groupby("well")}
     lane_slots = min(
         max(
-            int(_pack_lanes(rows["start"].to_numpy(), rows["end"].to_numpy()).max()) + 1
+            int(pack_lanes(rows["start"].to_numpy(), rows["end"].to_numpy()).max()) + 1
             for rows in per_well.values()
         ),
         MAX_TIMELINE_LANES,

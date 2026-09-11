@@ -46,20 +46,41 @@ def norm_suffix(normalized: bool) -> str:
     return "zscore" if normalized else "raw"
 
 
-def features_path(normalized: bool = True) -> Path:
-    """Features parquet path for the given normalization status.
+def overlap_suffix(allow_overlap: bool) -> str:
+    """Artifact-name suffix for the overlap rule the features were built under.
+
+    Parameters
+    ----------
+    allow_overlap : bool
+        Whether the real instances overlapping another of the same well were
+        kept (see ``preprocessing.select_instances``).
+
+    Returns
+    -------
+    str
+        ``"_overlap"`` when they were kept, ``""`` for the default dataset.
+    """
+    return "_overlap" if allow_overlap else ""
+
+
+def features_path(normalized: bool = True, allow_overlap: bool = False) -> Path:
+    """Features parquet path for the given normalization and overlap rules.
 
     Parameters
     ----------
     normalized : bool
         Whether the features were built from per-instance z-scored sensors.
+    allow_overlap : bool
+        Whether overlapping real instances were kept when building them.
 
     Returns
     -------
     Path
-        ``data/features_zscore.parquet`` or ``data/features_raw.parquet``.
+        ``data/features_zscore.parquet`` by default; ``raw`` replaces
+        ``zscore`` without normalization and ``_overlap`` is appended when
+        overlapping instances were kept, e.g. ``features_raw_overlap.parquet``.
     """
-    return DATA_DIR / f"features_{norm_suffix(normalized)}.parquet"
+    return DATA_DIR / f"features_{norm_suffix(normalized)}{overlap_suffix(allow_overlap)}.parquet"
 
 
 # -- 3W dataset classes -------------------------------------------------------

@@ -178,7 +178,12 @@ class TaskData:
     n_windows: int
 
 
-def load_task_data(task: str, normalized: bool = True, cv_group: str = CV_GROUPING) -> TaskData:
+def load_task_data(
+    task: str,
+    normalized: bool = True,
+    cv_group: str = CV_GROUPING,
+    allow_overlap: bool = False,
+) -> TaskData:
     """Load the features parquet and assemble the dataset for one task.
 
     Parameters
@@ -194,6 +199,10 @@ def load_task_data(task: str, normalized: bool = True, cv_group: str = CV_GROUPI
         ``"well_id"`` additionally keeps all recordings of one well together.
         With ``"well_id"``, simulated and hand-drawn instances are dropped —
         they have no physical well to group by.
+    allow_overlap : bool
+        Load the features built with the overlapping real instances kept
+        (the ``_overlap`` parquet) instead of the default ones, from which
+        stage 1 dropped them.
 
     Returns
     -------
@@ -202,11 +211,13 @@ def load_task_data(task: str, normalized: bool = True, cv_group: str = CV_GROUPI
     """
     if cv_group not in CV_GROUPINGS:
         raise ValueError(f"Unknown cv_group: {cv_group!r} (expected {CV_GROUPINGS})")
-    path = features_path(normalized)
+    path = features_path(normalized, allow_overlap)
     if not path.exists():
-        flag = "" if normalized else " --no-normalization"
+        flags = ("" if normalized else " --no-normalization") + (
+            " --allow-overlap" if allow_overlap else ""
+        )
         raise FileNotFoundError(
-            f"{path} not found. Build it first:\n  uv run scripts/01_build_features.py{flag}"
+            f"{path} not found. Build it first:\n  uv run scripts/01_build_features.py{flags}"
         )
     df = pd.read_parquet(path)
     if cv_group not in df.columns:

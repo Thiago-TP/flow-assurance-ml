@@ -51,3 +51,9 @@
 - [x] Split the stage-0 output into one directory per plot family under `results/figures/`:
   `instances_per_fault/`, `well_histories/` (the per-well histories and the fault timeline)
   and `fault_signatures/{real,simulated,drawn}/`.
+- [x] Instances from a given well may overlap in time (see `results/figures/well_histories/faults_per_well.pdf`), making train-test leakage possible, and, more importantly, assigning different labels to the same data point/vector (e.g., a pressure at the end of an instance is labeled "faulty steady state" in the earlier instance, and "normal in the next"). As such, it must be implemented that default behavior discards overlapping instances (i.e., those instances in stack level 2 or higher in `faults_per_well.pdf`) *before* building the feature dataset. Conversely, a new flag  `--allow-overlap` would include all instances regardless of overlap.
+  (Done: stage 1 stacks the real instances of every well exactly as `faults_per_well.pdf` does
+  (`preprocessing.pack_lanes`, shared with the plot) and drops those on stack level 2 or higher;
+  `--allow-overlap` keeps them and, like `--no-normalization`, is a shared switch that tags the
+  features parquet and every downstream artifact with `_overlap` so both datasets coexist.
+  `--verbose` reports how many instances overlap and how many were removed, per well.)   
