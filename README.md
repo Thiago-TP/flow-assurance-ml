@@ -117,19 +117,45 @@ artifact tags.
 
 ## Dataset visualization
 
-Independent of the modeling pipeline, stage 0 plots the raw dataset itself as available in the 3W repository
-(real instances only — simulated and hand-drawn ones are skipped):
+Independent of the modeling pipeline, stage 0 plots the raw dataset itself as available in the 3W repository:
 
 ```bash
 uv run scripts/00_visualize_dataset.py          # add --verbose for per-instance progress
 ```
 
-- `results/figures/fault_<n>_real_instances.pdf` — one PDF per fault class,
-  one page per instance: the well operational status (`state`) and label
-  (`class`) as colored bands, then every sensor with data, shaded by label
-  (green = normal, yellow = transient, red = active fault, grey = unlabeled)
-  with units from the 3W `dataset.ini` and the total variation (Δ) per panel.
-- `results/figures/faults_per_well.pdf` — one page per well: every instance
+Each family of plots gets its own directory under `results/figures/`:
+
+```mermaid
+flowchart LR
+  R[("3W raw parquets")] --> V["00_visualize_dataset.py"]
+  V --> I["instances_per_fault/<br/>fault_&lt;n&gt;_real_instances.pdf<br/><i>one page per instance</i>"]
+  V --> S["fault_signatures/&lt;source&gt;/<br/>fault_&lt;n&gt;_&lt;source&gt;_signatures.pdf<br/><i>one page per instance</i>"]
+  V --> W["well_histories/<br/>well_&lt;n&gt;_history.pdf<br/><i>one page per sensor</i><br/>faults_per_well.pdf<br/><i>one page per well</i>"]
+```
+
+- **`instances_per_fault/fault_<n>_real_instances.pdf`** — one PDF per fault
+  class, one page per instance: the well operational status (`state`) and
+  label (`class`) as colored bands, then every sensor with data, shaded by
+  label (green = normal, yellow = transient, red = active fault, grey =
+  unlabeled) with units from the 3W `dataset.ini` and the total variation (Δ)
+  per panel.
+- **`fault_signatures/<source>/fault_<n>_<source>_signatures.pdf`** — one PDF
+  per fault class and instance source (`real`, `simulated`, `drawn`), one page
+  per instance: the *signature* of the fault, i.e. the handful of variables
+  whose joint behavior identifies it, drawn on a single time axis with one
+  colored y axis each, over the same bands and the same label shading as
+  above. Where the plot above asks *what did this instance record?*, this one
+  asks *does this instance look like its fault?* — the pressure upstream of
+  the choke falling while the downhole pressure rises, say. The legend gives
+  each variable its unit and Δ; a variable the instance does not carry keeps
+  its axis, marked `not recorded`, and one that never moves is drawn flat
+  instead of being autoscaled into noise.
+- **`well_histories/well_<n>_history.pdf`** — one PDF per well, one page per
+  sensor. All instances of the well are stitched together in time and the well
+  operational status (`state`) and label (`class`) are color-banded; the
+  sensor is drawn as a min/max envelope and the months of silence between
+  recordings collapse to narrow marked blanks.
+- **`well_histories/faults_per_well.pdf`** — one page per well: every instance
   recorded on it as a horizontal bar from its first to its last timestamp,
   labeled with the timestamp of its filename and stacked on top of the
   instances it overlaps in time, so the overlap that leaks between train and
@@ -139,10 +165,30 @@ uv run scripts/00_visualize_dataset.py          # add --verbose for per-instance
   is reached at all), and the legend names hue and tint together, one entry
   per color the page draws. The months of silence between recordings collapse
   to narrow marked blanks, the time scale staying uniform everywhere else.
-- `results/figures/well_<n>_history.pdf` - one PDF per well history, 
-  one page per feature (sensor, state). Instances of a same well are stitched 
-  together in time and the well operational status (`state`) and label 
-  (`fault`) color-banded
+
+> [!NOTE]
+> Everything keyed to a physical well — the instance histories, the well
+> histories and the fault timeline — covers **real instances only**, since
+> simulated and hand-drawn instances have no well to belong to. Signatures are
+> about the shape of an event rather than about a well, so they are drawn for
+> all three sources.
+
+Only the faults the [3W Dataset 2.0.0 paper](https://doi.org/10.1038/s41597-026-07225-z)
+illustrates (its figures 3 to 7) have a published signature, and not every one
+of them exists in every source:
+
+| Fault                          | Signature variables                          | real | simulated | drawn |
+| ------------------------------ | -------------------------------------------- | ---- | --------- | ----- |
+| 0 — Normal                     | ABER-CKP · ESTADO-SDV-P · ESTADO-W1 · T-TPT | 594  | —         | —     |
+| 2 — Spurious DHSV Closure      | P-MON-CKP · P-PDG · P-TPT · T-TPT           | 22   | 16        | —     |
+| 3 — Severe Slugging            | P-MON-CKP · P-PDG · P-TPT · T-JUS-CKP       | 32   | 74        | —     |
+| 6 — Quick PCK Restriction      | ABER-CKP · P-MON-CKP · P-PDG · P-TPT        | 6    | 215       | —     |
+| 8 — Hydrate in Production Line | P-MON-CKP · P-PDG · P-TPT · T-TPT           | 14   | 81        | —     |
+
+The hand-drawn instances of 3W 2.0.0 cover only faults 1 and 7, so the `drawn`
+directory stays empty until those two faults get a signature of their own in
+`FAULT_SIGNATURES` ([`src/flowml/visualization.py`](src/flowml/visualization.py)) —
+adding an entry there is all it takes for stage 0 to pick a fault up.
 
 ## Class groupings
 
@@ -206,13 +252,19 @@ flowchart LR
 │   ├── train_val_test.py     task datasets · pipelines · CV search · held-out evaluation
 │   ├── evaluation.py         metrics · confusion matrix
 │   ├── interpretation.py     MDI · gain · permutation · SHAP
-│   ├── visualization.py      raw-data plots (per-fault instance histories)
-│   ├── visualization.py      raw-dataset plots (instance histories · fault timeline)
+│   ├── visualization.py      raw-dataset plots (instances · signatures · well histories)
 │   └── cli.py                shared argparse
 ├── main.py                   runs all stages in order
 ├── scripts/                  the pipeline stages + dataset visualization (thin CLIs)
 ├── data/                     generated features (git-ignored)
 └── results/                  models · metrics · figures (mostly git-ignored)
+    └── figures/
+        ├── instances_per_fault/   one PDF per fault class
+        ├── fault_signatures/      one subdirectory per instance source
+        │   ├── real/
+        │   ├── simulated/
+        │   └── drawn/
+        └── well_histories/        one PDF per well + the fault timeline
 ```
 
 ## Methodology notes

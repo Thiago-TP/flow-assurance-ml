@@ -1,10 +1,13 @@
 """Stage 0 (optional) — Visualize the raw 3W dataset.
 
 Standalone of the modeling pipeline. Renders, in order, every real instance of
-every fault (one multi-page PDF per fault), the timeline of the instances of
-every well (one page per well), and the joined history of every well (one
-multi-page PDF per well). Simulated and hand-drawn instances are never
-plotted.
+every fault (one multi-page PDF per fault), the signature of every fault that
+has one (one multi-page PDF per fault and instance source), the timeline of the
+instances of every well (one page per well), and the joined history of every
+well (one multi-page PDF per well).
+
+The plots keyed to a physical well cover real instances only, since simulated
+and hand-drawn ones have no well; the signatures cover all three sources.
 
 ``--well`` narrows the well histories to a few wells, and ``--skip-faults``
 drops the two per-fault stages, which together make inspecting one well quick.
@@ -16,9 +19,10 @@ Usage
 
 Outputs
 -------
-    results/figures/fault_<n>_real_instances.pdf   one per fault class
-    results/figures/faults_per_well.pdf            one page per well
-    results/figures/well_<id>_history.pdf          one per well
+    results/figures/instances_per_fault/fault_<n>_real_instances.pdf
+    results/figures/fault_signatures/<source>/fault_<n>_<source>_signatures.pdf
+    results/figures/well_histories/faults_per_well.pdf
+    results/figures/well_histories/well_<id>_history.pdf
 """
 
 import argparse
@@ -26,7 +30,12 @@ from datetime import datetime
 from pathlib import Path
 
 from flowml.config import FAULT_CLASSES, RAW_DATA_DIR
-from flowml.visualization import plot_fault, plot_faults_per_well, plot_wells_histories
+from flowml.visualization import (
+    plot_all_fault_signatures,
+    plot_fault,
+    plot_faults_per_well,
+    plot_wells_histories,
+)
 
 
 def main() -> None:
@@ -67,11 +76,15 @@ def main() -> None:
     print(f"Started {datetime.now().astimezone():%Y-%m-%d %H:%M:%S}")
 
     if not args.skip_faults:
+        stages = len(FAULT_CLASSES) + 2
         for fault_class, fault_name in FAULT_CLASSES.items():
-            print(f"\n[{fault_class + 1}/{len(FAULT_CLASSES) + 1}] {fault_name}...")
+            print(f"\n[{fault_class + 1}/{stages}] {fault_name}...")
             plot_fault(str(fault_class), raw_dir=args.raw_dir, verbose=args.verbose)
 
-        print(f"\n[{len(FAULT_CLASSES) + 1}/{len(FAULT_CLASSES) + 1}] Faults per well...")
+        print(f"\n[{stages - 1}/{stages}] Fault signatures...")
+        plot_all_fault_signatures(raw_dir=args.raw_dir, verbose=args.verbose)
+
+        print(f"\n[{stages}/{stages}] Faults per well...")
         plot_faults_per_well(raw_dir=args.raw_dir, verbose=args.verbose)
 
     print("\nWell histories...")

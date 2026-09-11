@@ -21,6 +21,14 @@ MODELS_DIR = RESULTS_DIR / "models"
 METRICS_DIR = RESULTS_DIR / "metrics"
 FIGURES_DIR = RESULTS_DIR / "figures"
 
+# The dataset plots of stage 0 (see visualization.py) come in hundreds of
+# files, so each family gets its own directory instead of sharing the one the
+# modeling stages write their figures into. The fault timeline lives with the
+# well histories because it is read alongside them: both are per-well views.
+INSTANCE_FIGURES_DIR = FIGURES_DIR / "instances_per_fault"
+WELL_HISTORY_FIGURES_DIR = FIGURES_DIR / "well_histories"
+SIGNATURE_FIGURES_DIR = FIGURES_DIR / "fault_signatures"
+
 
 def norm_suffix(normalized: bool) -> str:
     """Artifact-name suffix for the normalization status of the features.
@@ -68,6 +76,13 @@ FAULT_CLASSES = {
     8: "Hydrate in Production Line",
     9: "Hydrate in Service Line",
 }
+
+# The three origins a 3W instance can have, mapped to the filename prefix that
+# identifies one (see ``preprocessing.parse_source_type``): field recordings,
+# OLGA simulations, and series hand-drawn by Petrobras experts. Not every
+# fault has instances of every source — the hand-drawn ones exist only for
+# faults 1 and 7, and no fault has simulated normal operation.
+SOURCE_TYPES = {"real": "WELL", "simulated": "SIMULATED", "drawn": "DRAWN"}
 
 # Well operational status codes of the 3W ``state`` column
 # (Table 5 of the 3W Dataset 2.0.0 paper, arXiv:2507.01048).

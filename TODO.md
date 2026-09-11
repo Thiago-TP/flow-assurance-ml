@@ -39,3 +39,15 @@
   fixed in stage 2).
   (Fixed: the sweep now validates on train+val only and the chosen depth is scored once
   on the same seeded grouped test set stage 2's holdout evaluation uses.)
+- [x] Add a fault-signature visualization: `plot_fault_signatures(fault: int, source: str) -> None`
+  plots, for every instance of a fault folder, the variables whose joint behavior identifies
+  that fault (the ones the 3W Dataset 2.0.0 paper puts on its figures 3 to 7), all on one
+  time axis with a y axis of its own per variable, one page per instance.
+  `plot_all_fault_signatures()` covers every fault that has a signature, once per instance
+  source (real, simulated, hand-drawn), and stage 0 calls it.
+  (Note: hand-drawn instances exist only for faults 1 and 7, neither of which has a published
+  signature, so the `drawn` directory comes out empty until those two faults get an entry
+  in `FAULT_SIGNATURES`.)
+- [x] Split the stage-0 output into one directory per plot family under `results/figures/`:
+  `instances_per_fault/`, `well_histories/` (the per-well histories and the fault timeline)
+  and `fault_signatures/{real,simulated,drawn}/`.
