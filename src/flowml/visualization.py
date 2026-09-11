@@ -32,8 +32,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.font_manager import FontProperties
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
+from matplotlib.textpath import TextToPath
 from matplotlib.ticker import Formatter
 
 from flowml.config import (
@@ -95,10 +97,9 @@ TIMELINE_INSETS = {"top": 1.00, "bottom": 1.15}
 TIMELINE_LANE_HEIGHT = 0.62
 MAX_TIMELINE_LANES = 8  # levels a page shares with the others before growing
 
-# Advance width, in em, of the characters a timestamp label is made of, taken
-# from DejaVu Sans (matplotlib's default face); see ``_text_width_pt``.
-_DIGIT_EM = 0.636
-_CHAR_EM = {"-": 0.361, ":": 0.337, " ": 0.318}
+# Measures text with the actual font outlines and no renderer; see
+# ``_text_width_pt``.
+_TEXT_MEASURE = TextToPath()
 
 # Band colors for the well operational status ("state" column). Open is the
 # healthy status; the remaining codes cycle through a categorical palette.
@@ -179,6 +180,30 @@ def resolve_fault(fault: str) -> tuple[int, str]:
     )
 
 
+def _dataset_properties(raw_dir: Path) -> dict[str, str] | None:
+    """Read the ``PARQUET_FILE_PROPERTIES`` section of the 3W ``dataset.ini``.
+
+    Parameters
+    ----------
+    raw_dir : Path
+        Root of the 3W dataset (contains ``dataset.ini``).
+
+    Returns
+    -------
+    dict[str, str] | None
+        Description per upper-cased variable name, in dataset order; ``None``
+        when the ini file or the section is missing.
+    """
+    ini_path = raw_dir / "dataset.ini"
+    if not ini_path.exists():
+        return None
+    parser = configparser.ConfigParser()
+    parser.read(ini_path, encoding="utf-8")
+    if "PARQUET_FILE_PROPERTIES" not in parser:
+        return None
+    return {key.upper(): desc for key, desc in parser["PARQUET_FILE_PROPERTIES"].items()}
+
+
 def load_sensor_units(raw_dir: Path = RAW_DATA_DIR) -> dict[str, str]:
     """Read the physical unit of every variable from the 3W ``dataset.ini``.
 
@@ -197,24 +222,15 @@ def load_sensor_units(raw_dir: Path = RAW_DATA_DIR) -> dict[str, str]:
     dict[str, str]
         Unit per variable name; empty dict when the ini file is missing.
     """
-    ini_path = raw_dir / "dataset.ini"
-    if not ini_path.exists():
-        return {}
-    parser = configparser.ConfigParser()
-    parser.read(ini_path, encoding="utf-8")
-    if "PARQUET_FILE_PROPERTIES" not in parser:
-        return {}
-
     units = {}
-    for key, desc in parser["PARQUET_FILE_PROPERTIES"].items():
+    for name, desc in (_dataset_properties(raw_dir) or {}).items():
         match = re.search(r"\[([^\[\]]+)\]\s*$", desc)
         if not match:
             continue
         unit = match.group(1)
         if "," in unit or " or " in unit:
             unit = "-"
-        unit = unit.replace("oC", "°C").replace("m3/s", "m³/s")
-        units[key.upper()] = unit
+        units[name] = unit.replace("oC", "°C").replace("m3/s", "m³/s")
     return units
 
 
@@ -238,17 +254,43 @@ def load_sensor_names(raw_dir: Path = RAW_DATA_DIR) -> list[str]:
         Variable names excluding ``timestamp``, ``class`` and ``state``;
         falls back to ``KEY_SENSORS`` when the ini file is missing.
     """
-    ini_path = raw_dir / "dataset.ini"
-    if not ini_path.exists():
+    properties = _dataset_properties(raw_dir)
+    if properties is None:
         return list(KEY_SENSORS)
-    parser = configparser.ConfigParser()
-    parser.read(ini_path, encoding="utf-8")
-    if "PARQUET_FILE_PROPERTIES" not in parser:
-        return list(KEY_SENSORS)
+    return [name for name in properties if name not in ("TIMESTAMP", "CLASS", "STATE")]
+
+
+def list_instances(
+    fault_class: int, source: str = "real", raw_dir: Path = RAW_DATA_DIR
+) -> list[Path]:
+    """List the instance files of one fault folder that come from one source.
+
+    Parameters
+    ----------
+    fault_class : int
+        Fault-class folder number.
+    source : str
+        Instance source, a key of ``SOURCE_TYPES``: ``"real"``,
+        ``"simulated"`` or ``"drawn"``.
+    raw_dir : Path
+        Root of the 3W dataset.
+
+    Returns
+    -------
+    list[Path]
+        The matching parquet files, sorted by name. Empty when the fault has
+        no instance of that source, which is common: the hand-drawn ones exist
+        only for faults 1 and 7, and normal operation was never simulated.
+    """
+    if source not in SOURCE_TYPES:
+        raise ValueError(f"Unknown instance source: {source!r} (expected {list(SOURCE_TYPES)})")
+    class_dir = raw_dir / str(fault_class)
+    if not class_dir.exists():
+        raise FileNotFoundError(f"Class folder not found: {class_dir}")
     return [
-        key.upper()
-        for key in parser["PARQUET_FILE_PROPERTIES"]
-        if key.lower() not in ("timestamp", "class", "state")
+        f
+        for f in sorted(class_dir.glob("*.parquet"))
+        if parse_source_type(f.name) == SOURCE_TYPES[source]
     ]
 
 
@@ -268,12 +310,7 @@ def list_well_ids(raw_dir: Path = RAW_DATA_DIR) -> list[int]:
     """
     wells = set()
     for fault_class in FAULT_CLASSES:
-        class_dir = raw_dir / str(fault_class)
-        if not class_dir.exists():
-            continue
-        for filepath in class_dir.glob("*.parquet"):
-            if parse_source_type(filepath.name) != "WELL":
-                continue
+        for filepath in list_instances(fault_class, "real", raw_dir):
             well = parse_well_id(filepath.name)
             if well.isdigit():
                 wells.add(int(well))
@@ -356,6 +393,71 @@ def _draw_band(ax, x, segments, colors: dict, names: dict, label: str) -> None:
     ax.set_ylim(0, 1)
 
 
+def _label_style(class_segments: list[tuple[int, int, float]]) -> tuple[dict, dict]:
+    """Shading color and display name of every ``class`` run, for ``_draw_band``.
+
+    Parameters
+    ----------
+    class_segments : list[(int, int, float)]
+        Runs of the ``class`` column from ``_segments``.
+
+    Returns
+    -------
+    (dict, dict)
+        Color per value and name per value, ``None`` standing for NaN.
+    """
+    colors, names = {}, {}
+    for _, _, value in class_segments:
+        key = None if np.isnan(value) else value
+        colors[key] = LABEL_COLORS[_label_kind(value)]
+        names[key] = _label_name(value)
+    return colors, names
+
+
+def _draw_label_bands(band_axes, x, class_values, state_values) -> list[tuple[int, int, float]]:
+    """Draw the two bands every instance page opens with: state, then class.
+
+    Parameters
+    ----------
+    band_axes : sequence of matplotlib.axes.Axes
+        The two thin axes above the plotting area, top first.
+    x : np.ndarray
+        Time axis values.
+    class_values, state_values : np.ndarray
+        The ``class`` and ``state`` columns as floats, NaN included.
+
+    Returns
+    -------
+    list[(int, int, float)]
+        The runs of ``class_values``, for the caller to shade its plotting
+        area with (see ``_shade_by_label``).
+    """
+    state_names = dict(WELL_STATES) | {None: "Unknown"}
+    _draw_band(band_axes[0], x, _segments(state_values), STATE_COLORS, state_names, "state")
+    class_segments = _segments(class_values)
+    colors, names = _label_style(class_segments)
+    _draw_band(band_axes[1], x, class_segments, colors, names, "class")
+    return class_segments
+
+
+def _shade_by_label(ax, x, class_segments: list[tuple[int, int, float]]) -> None:
+    """Shade the background of ``ax`` by label, one ``LABEL_COLORS`` tint per run."""
+    for start, end, value in class_segments:
+        ax.axvspan(
+            x[start],
+            x[min(end, len(x) - 1)],
+            color=LABEL_COLORS[_label_kind(value)],
+            lw=0,
+            zorder=0,
+        )
+
+
+def _tint(color: str, strength: float) -> tuple[float, float, float]:
+    """Mix one color toward white, ``strength`` 1.0 keeping it untouched."""
+    base = np.array(mcolors.to_rgb(color))
+    return tuple(1.0 - (1.0 - base) * strength)
+
+
 def _plot_instance(df: pd.DataFrame, fault_name: str, filename: str, units: dict[str, str]):
     """Build the one-page figure of a single raw instance.
 
@@ -377,15 +479,12 @@ def _plot_instance(df: pd.DataFrame, fault_name: str, filename: str, units: dict
     """
     sensors = [c for c in df.columns if c not in ("class", "state") and df[c].notna().any()]
     x = df.index.to_numpy()
-
-    class_values = (
-        df["class"].to_numpy(dtype=float) if "class" in df.columns else np.full(len(df), np.nan)
-    )
-    state_values = (
-        df["state"].to_numpy(dtype=float) if "state" in df.columns else np.full(len(df), np.nan)
-    )
-    class_segments = _segments(class_values)
-    state_segments = _segments(state_values)
+    labels = {
+        column: (
+            df[column].to_numpy(dtype=float) if column in df.columns else np.full(len(df), np.nan)
+        )
+        for column in ("class", "state")
+    }
 
     n = len(sensors)
     fig, axes = plt.subplots(
@@ -396,25 +495,10 @@ def _plot_instance(df: pd.DataFrame, fault_name: str, filename: str, units: dict
         gridspec_kw={"height_ratios": [0.18, 0.18] + [1.0] * n},
     )
     fig.suptitle(f"{fault_name} | Instance history | {filename}", fontsize=10)
-
-    state_names = {k: v for k, v in WELL_STATES.items()} | {None: "Unknown"}
-    _draw_band(axes[0], x, state_segments, STATE_COLORS, state_names, "state")
-
-    class_colors = {
-        (None if np.isnan(v) else v): LABEL_COLORS[_label_kind(v)] for _, _, v in class_segments
-    }
-    class_names = {(None if np.isnan(v) else v): _label_name(v) for _, _, v in class_segments}
-    _draw_band(axes[1], x, class_segments, class_colors, class_names, "class")
+    class_segments = _draw_label_bands(axes[:2], x, labels["class"], labels["state"])
 
     for ax, sensor in zip(axes[2:], sensors):
-        for start, end, value in class_segments:
-            ax.axvspan(
-                x[start],
-                x[min(end, len(x) - 1)],
-                color=LABEL_COLORS[_label_kind(value)],
-                lw=0,
-                zorder=0,
-            )
+        _shade_by_label(ax, x, class_segments)
         col = df[sensor].to_numpy(dtype=float)
         ax.plot(x, col, lw=0.8, zorder=2)
 
@@ -472,13 +556,11 @@ def plot_fault(
         Print per-instance progress (default off).
     """
     fault_class, fault_name = resolve_fault(fault)
-    class_dir = raw_dir / str(fault_class)
-    if not class_dir.exists():
-        raise FileNotFoundError(f"Class folder not found: {class_dir}")
-
-    files = [f for f in sorted(class_dir.glob("*.parquet")) if parse_source_type(f.name) == "WELL"]
+    files = list_instances(fault_class, "real", raw_dir)
     if not files:
-        raise FileNotFoundError(f"No real (WELL-*) instances under {class_dir}")
+        raise FileNotFoundError(
+            f"No real (WELL-*) instances of fault {fault_class} under {raw_dir}"
+        )
 
     units = load_sensor_units(raw_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -607,10 +689,6 @@ def _plot_signature(
         The finished figure, ready to save.
     """
     x = env.index.to_numpy()
-    class_values = env["class"].to_numpy(dtype=float)
-    state_values = env["state"].to_numpy(dtype=float)
-    class_segments = _segments(class_values)
-    state_segments = _segments(state_values)
 
     fig, axes = plt.subplots(
         3,
@@ -620,28 +698,15 @@ def _plot_signature(
         gridspec_kw={"height_ratios": [0.12, 0.12, 1.0]},
     )
     fig.suptitle(f"{fault_name} | Fault signature | {filename}", fontsize=11)
-
-    state_names = dict(WELL_STATES) | {None: "Unknown"}
-    _draw_band(axes[0], x, state_segments, STATE_COLORS, state_names, "state")
-
-    class_colors = {
-        (None if np.isnan(v) else v): LABEL_COLORS[_label_kind(v)] for _, _, v in class_segments
-    }
-    class_names = {(None if np.isnan(v) else v): _label_name(v) for _, _, v in class_segments}
-    _draw_band(axes[1], x, class_segments, class_colors, class_names, "class")
+    class_segments = _draw_label_bands(
+        axes[:2], x, env["class"].to_numpy(dtype=float), env["state"].to_numpy(dtype=float)
+    )
 
     # The label shades the plotting area, as in ``plot_fault``; the well
     # operational status stays confined to its band, where it informs without
     # competing with four signals for the reader's attention.
     base = axes[2]
-    for start, end, value in class_segments:
-        base.axvspan(
-            x[start],
-            x[min(end, len(x) - 1)],
-            color=LABEL_COLORS[_label_kind(value)],
-            lw=0,
-            zorder=0,
-        )
+    _shade_by_label(base, x, class_segments)
 
     offset_pt = SIGNATURE_AXIS_STEP * SIGNATURE_WIDTH * 72.0
     handles = []
@@ -733,40 +798,6 @@ def _plot_signature(
         frameon=False,
     )
     return fig
-
-
-def list_instances(
-    fault_class: int, source: str = "real", raw_dir: Path = RAW_DATA_DIR
-) -> list[Path]:
-    """List the instance files of one fault folder that come from one source.
-
-    Parameters
-    ----------
-    fault_class : int
-        Fault-class folder number.
-    source : str
-        Instance source, a key of ``SOURCE_TYPES``: ``"real"``,
-        ``"simulated"`` or ``"drawn"``.
-    raw_dir : Path
-        Root of the 3W dataset.
-
-    Returns
-    -------
-    list[Path]
-        The matching parquet files, sorted by name. Empty when the fault has
-        no instance of that source, which is common: the hand-drawn ones exist
-        only for faults 1 and 7, and normal operation was never simulated.
-    """
-    if source not in SOURCE_TYPES:
-        raise ValueError(f"Unknown instance source: {source!r} (expected {list(SOURCE_TYPES)})")
-    class_dir = raw_dir / str(fault_class)
-    if not class_dir.exists():
-        raise FileNotFoundError(f"Class folder not found: {class_dir}")
-    return [
-        f
-        for f in sorted(class_dir.glob("*.parquet"))
-        if parse_source_type(f.name) == SOURCE_TYPES[source]
-    ]
 
 
 def plot_fault_signatures(
@@ -968,9 +999,7 @@ def _class_palette(values: np.ndarray) -> tuple[dict, dict]:
             colors[key] = LABEL_COLORS[kind]
         else:
             fault = int(value) - 100 if kind == "transient" else int(value)
-            strength = 0.30 if kind == "active" else 0.15
-            base = np.array(mcolors.to_rgb(FAULT_COLORS[fault]))
-            colors[key] = tuple(1.0 - (1.0 - base) * strength)
+            colors[key] = _tint(FAULT_COLORS[fault], 0.30 if kind == "active" else 0.15)
         names[key] = _label_name(value)
     return colors, names
 
@@ -1005,10 +1034,9 @@ def load_well_history(
     """
     frames, spans = [], []
     for fault_class in FAULT_CLASSES:
-        class_dir = raw_dir / str(fault_class)
-        if not class_dir.exists():
-            raise FileNotFoundError(f"Class folder not found: {class_dir}")
-        for filepath in sorted(class_dir.glob(f"WELL-{well_id:05d}_*.parquet")):
+        for filepath in list_instances(fault_class, "real", raw_dir):
+            if parse_well_id(filepath.name) != str(well_id):
+                continue
             df = pd.read_parquet(filepath)
             sensors = [c for c in df.columns if c not in ("class", "state")]
             df[sensors] = df[sensors].astype("float32")  # halve the memory of long wells
@@ -1054,41 +1082,25 @@ def _envelope(timeline: pd.DataFrame, max_points: int) -> pd.DataFrame:
     timeline : pd.DataFrame
         Joined history from ``load_well_history``.
     max_points : int
-        Target number of buckets; the timeline is returned untouched when it
-        is already shorter.
+        Target number of buckets; a timeline already shorter than that gets
+        one bucket per sample, so its envelope is the signal itself.
 
     Returns
     -------
     pd.DataFrame
-        Timestamp-indexed frame with ``<sensor>_min`` / ``<sensor>_max`` per
-        sensor plus ``class`` and ``state``.
+        Frame indexed by the first timestamp of each bucket, with
+        ``<sensor>_min`` / ``<sensor>_max`` per sensor plus ``class`` and
+        ``state``.
     """
     sensors = [c for c in timeline.columns if c not in ("class", "state")]
     step = max(1, len(timeline) // max_points)
+    grouped = timeline.groupby(np.arange(len(timeline)) // step, sort=True)
 
-    if step == 1:
-        env = pd.DataFrame(index=timeline.index)
-        for sensor in sensors:
-            env[f"{sensor}_min"] = timeline[sensor]
-            env[f"{sensor}_max"] = timeline[sensor]
-    else:
-        bucket = np.arange(len(timeline)) // step
-        grouped = timeline.groupby(bucket, sort=True)
-        agg = grouped[sensors].agg(["min", "max"])
-        agg.columns = [f"{sensor}_{stat}" for sensor, stat in agg.columns]
-        env = agg.set_index(timeline.index.to_series().groupby(bucket, sort=True).first())
-
+    env = grouped[sensors].agg(["min", "max"])
+    env.columns = [f"{sensor}_{stat}" for sensor, stat in env.columns]
     for column in ("class", "state"):
-        if column in timeline.columns:
-            source = timeline[column]
-            env[column] = (
-                source.to_numpy()
-                if step == 1
-                else source.groupby(np.arange(len(timeline)) // step, sort=True).first().to_numpy()
-            )
-        else:
-            env[column] = np.nan
-
+        env[column] = grouped[column].first().to_numpy() if column in timeline.columns else np.nan
+    env.index = timeline.index[::step]  # bucket k starts at sample k * step
     return env
 
 
@@ -1393,11 +1405,11 @@ def plot_well_history(
     """
     timeline, spans = load_well_history(well_id, raw_dir)
 
-    overlaps = int((spans["start"] < spans["end"].shift()).sum())
+    overlapping = int(overlapping_mask(spans["start"].to_numpy(), spans["end"].to_numpy()).sum())
     duplicated = int(spans["n_samples"].sum() - len(timeline))
     faults = sorted(spans["fault_class"].unique())
     subtitle = (
-        f"{len(spans)} instances ({overlaps + 1} overlapping) | "
+        f"{len(spans)} instances ({overlapping} overlapping) | "
         f"{len(timeline):,} unique timestamps ({duplicated:,} deduplicated) | "
         f"{spans['start'].min():%Y-%m-%d} to {spans['end'].max():%Y-%m-%d} | "
         f"fault folders: {', '.join(FAULT_CLASSES[f] for f in faults)}"
@@ -1549,12 +1561,6 @@ def _fault_reach(class_values: np.ndarray) -> str:
     return "normal"
 
 
-def _tint(color: str, strength: float) -> tuple[float, float, float]:
-    """Mix one color toward white, ``strength`` 1.0 keeping it untouched."""
-    base = np.array(mcolors.to_rgb(color))
-    return tuple(1.0 - (1.0 - base) * strength)
-
-
 def _bar_color(fault_class: int, reach: str) -> tuple[float, float, float]:
     """Fill color of one instance bar: its fault hue, tinted by fault reach.
 
@@ -1583,13 +1589,12 @@ def _text_color(rgb: tuple[float, float, float]) -> str:
 
 
 def _text_width_pt(text: str, fontsize: float) -> float:
-    """Width of a timestamp label in points, from DejaVu Sans advances.
+    """Width of a label in points, as matplotlib's default font sets it.
 
     Deciding whether a label fits inside its bar needs the label width before
-    anything is drawn, and asking the renderer for it would tie the decision
-    to the backend. The labels only ever hold digits and the three separators
-    of a timestamp, whose advances in matplotlib's default face are known, so
-    the width is summed directly.
+    anything is drawn. ``TextToPath`` measures it from the font outlines
+    themselves, with no renderer involved, so the answer is exact and does not
+    depend on the backend.
 
     Parameters
     ----------
@@ -1603,8 +1608,10 @@ def _text_width_pt(text: str, fontsize: float) -> float:
     float
         Advance width of the label, in points.
     """
-    em = sum(_DIGIT_EM if char.isdigit() else _CHAR_EM.get(char, 0.6) for char in text)
-    return em * fontsize
+    width, _, _ = _TEXT_MEASURE.get_text_width_height_descent(
+        text, FontProperties(size=fontsize), ismath=False
+    )
+    return width
 
 
 def _recording_blocks(
@@ -1937,12 +1944,7 @@ def plot_faults_per_well(
     """
     records = []
     for fault_class in FAULT_CLASSES:
-        class_dir = raw_dir / str(fault_class)
-        if not class_dir.exists():
-            raise FileNotFoundError(f"Class folder not found: {class_dir}")
-        files = [
-            f for f in sorted(class_dir.glob("*.parquet")) if parse_source_type(f.name) == "WELL"
-        ]
+        files = list_instances(fault_class, "real", raw_dir)
         if verbose:
             print(f"  Class {fault_class} ({FAULT_CLASSES[fault_class]}): {len(files)} instances")
         for filepath in files:
