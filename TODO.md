@@ -58,5 +58,11 @@
   features parquet and every downstream artifact with `_overlap` so both datasets coexist.
   `--verbose` reports how many instances overlap and how many were removed, per well.)
 - [X] the `scr/visualize.py` backend may be bloated, a review and, if necessary, a refactor, are in order.
+  (Done: the length was mostly docstrings and four plot families in one module; the actual bloat
+  was duplication, folded into single helpers (`dataset.ini` reader, `list_instances`, label
+  bands/shading, tint, envelope, `overlapping_mask`, `TextToPath` widths). Then a shared PDF writer
+  and the flat-signal guard on instance pages, and finally a verbatim split into the
+  `flowml.visualization` package: `common`, `instances`, `signatures`, `wells`, `timeline`, with the
+  public API re-exported so the stage-0 script's imports did not change.)
 - [ ] some real instances present extreme values of sensor data. For example, well 6 has P-PDG and T-PDG values of magnitude greater than 10^32. This breaks classifiers when the `--no-normalization` flag is up. Proposal: make the default behavior of the pipeline to, at data loading time, swap extreme values with NaN, which will be subject to later imputation. This can be deactivated with flag `--keep-extreme-values`.
 - [ ] the Severe Slugging class (default number: 3) is effectively monopolized by well 14: 31 of the 32 real instances (96.875%) from this fault class come from it, with the remaining one coming from well 1. Therefore, train/validation/testing splits may lead to a configuration where no Severe Slugging is seen during training, breaking classifier evaluation and, more importantly, making it wholly unable of predicting the "missing" fault. Proposal: at run time, it must be ensured that training and test splits present all classes. If they don't, then one instance (`--cv-group instance_id`) or well (`--cv-group well_id`) is picked at random and moved into the empty split. Then the splits are checked again, and if valid, the pipeline is carried out as normal; if not, the splits are reset and a different instance/well is picked at random again. If after all instances/wells are picked no configuration is valid, then the pipeline breaks. User should be notified of what's happening through `--verbose` logs.

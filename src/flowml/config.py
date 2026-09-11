@@ -21,7 +21,7 @@ MODELS_DIR = RESULTS_DIR / "models"
 METRICS_DIR = RESULTS_DIR / "metrics"
 FIGURES_DIR = RESULTS_DIR / "figures"
 
-# The dataset plots of stage 0 (see visualization.py) come in hundreds of
+# The dataset plots of stage 0 (see the ``visualization`` package) come in hundreds of
 # files, so each family gets its own directory instead of sharing the one the
 # modeling stages write their figures into. The fault timeline lives with the
 # well histories because it is read alongside them: both are per-well views.

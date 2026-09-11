@@ -154,7 +154,8 @@ flowchart LR
   label (`class`) as colored bands, then every sensor with data, shaded by
   label (green = normal, yellow = transient, red = active fault, grey =
   unlabeled) with units from the 3W `dataset.ini` and the total variation (Δ)
-  per panel.
+  per panel; a sensor that never moves is held flat and marked so, instead of
+  being autoscaled into noise.
 - **`fault_signatures/<source>/fault_<n>_<source>_signatures.pdf`** — one PDF
   per fault class and instance source (`real`, `simulated`, `drawn`), one page
   per instance: the *signature* of the fault, i.e. the handful of variables
@@ -203,7 +204,7 @@ of them exists in every source:
 
 The hand-drawn instances of 3W 2.0.0 cover only faults 1 and 7, so the `drawn`
 directory stays empty until those two faults get a signature of their own in
-`FAULT_SIGNATURES` ([`src/flowml/visualization.py`](src/flowml/visualization.py)) —
+`FAULT_SIGNATURES` ([`src/flowml/visualization/signatures.py`](src/flowml/visualization/signatures.py)) —
 adding an entry there is all it takes for stage 0 to pick a fault up.
 
 ## Class groupings
@@ -268,7 +269,12 @@ flowchart LR
 │   ├── train_val_test.py     task datasets · pipelines · CV search · held-out evaluation
 │   ├── evaluation.py         metrics · confusion matrix
 │   ├── interpretation.py     MDI · gain · permutation · SHAP
-│   ├── visualization.py      raw-dataset plots (instances · signatures · well histories)
+│   ├── visualization/        raw-dataset plots, one module per family
+│   │   ├── common.py         palettes · dataset.ini · label bands · envelope · PDF writing
+│   │   ├── instances.py      plot_fault
+│   │   ├── signatures.py     plot_fault_signatures
+│   │   ├── wells.py          plot_well_history
+│   │   └── timeline.py       plot_faults_per_well
 │   └── cli.py                shared argparse
 ├── main.py                   runs all stages in order
 ├── scripts/                  the pipeline stages + dataset visualization (thin CLIs)
