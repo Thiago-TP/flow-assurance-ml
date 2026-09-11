@@ -46,7 +46,7 @@ def main() -> None:
     args = parser.parse_args()
 
     normalize = not args.no_normalization
-    output_path = features_path(normalize, args.allow_overlap)
+    output_path = features_path(normalize, args.allow_overlap, args.keep_extreme_values)
     print(f"Building features from {args.raw_dir}")
     print(f"Started {datetime.now().astimezone():%Y-%m-%d %H:%M:%S}")
     build_features(
@@ -55,6 +55,7 @@ def main() -> None:
         max_instances_per_class=args.max_instances,
         normalize=normalize,
         allow_overlap=args.allow_overlap,
+        keep_extreme_values=args.keep_extreme_values,
         verbose=args.verbose,
     )
 

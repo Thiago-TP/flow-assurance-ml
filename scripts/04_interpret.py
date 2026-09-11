@@ -47,7 +47,15 @@ def main() -> None:
     )
     args = parser.parse_args()
     normalized = not args.no_normalization
-    tag = run_tag(args.model, args.task, normalized, args.cv_group, args.eval, args.allow_overlap)
+    tag = run_tag(
+        args.model,
+        args.task,
+        normalized,
+        args.cv_group,
+        args.eval,
+        args.allow_overlap,
+        args.keep_extreme_values,
+    )
     cmap = "Blues_r" if args.model == "rf" else "Oranges_r"
 
     model_path = MODELS_DIR / f"{tag}.joblib"
@@ -62,7 +70,9 @@ def main() -> None:
     clf = pipe.named_steps["clf"]
 
     print(f"Interpretation — {tag}")
-    data = load_task_data(args.task, normalized, args.cv_group, args.allow_overlap)
+    data = load_task_data(
+        args.task, normalized, args.cv_group, args.allow_overlap, args.keep_extreme_values
+    )
     X_imputed = pipe.named_steps["imputer"].transform(data.X)
     rankings: dict[str, dict] = {}
 

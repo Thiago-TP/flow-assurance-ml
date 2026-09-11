@@ -17,6 +17,7 @@ tasks.
 
 import gc
 import warnings
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -27,18 +28,23 @@ from scipy.stats import kurtosis, skew
 
 from flowml.config import (
     CONSTANT_THRESHOLD,
+    EXTREME_VALUE_LIMIT,
     FAULT_CLASSES,
     FEATURE_STATS,
     KEY_SENSORS,
     MIN_VALID_SAMPLES,
+    OPENING_MIN,
+    PRESSURE_MIN,
     RAW_DATA_DIR,
     STEP_SIZE,
+    TEMPERATURE_LIMITS,
     WINDOW_SIZE,
 )
 from flowml.preprocessing import (
     clean_instance,
     list_raw_instances,
     load_raw_instances,
+    mask_extreme_values,
     normalize_instance,
     select_instances,
 )
@@ -195,6 +201,7 @@ def build_features(
     max_instances_per_class: int | None = None,
     normalize: bool = True,
     allow_overlap: bool = False,
+    keep_extreme_values: bool = False,
     verbose: bool = False,
 ) -> None:
     """Run the full raw -> features pass and write one parquet incrementally.
@@ -203,7 +210,13 @@ def build_features(
     first (see ``preprocessing.select_instances``), unless ``allow_overlap``
     is set. The remaining instances are processed one at a time and flushed
     to disk through a PyArrow writer, so peak memory stays at one instance
-    regardless of dataset size.
+    regardless of dataset size. Each one has the readings that cannot be
+    measurements — beyond ``EXTREME_VALUE_LIMIT``, negative pressures or choke
+    openings, temperatures outside ``TEMPERATURE_LIMITS`` — masked as missing
+    data (see
+    ``preprocessing.mask_extreme_values``) unless ``keep_extreme_values`` is
+    set, and is then cleaned, which can drop it when the masking left its
+    critical sensor mostly empty.
 
     Parameters
     ----------
@@ -220,9 +233,12 @@ def build_features(
     allow_overlap : bool
         Keep the overlapping real instances instead of dropping them
         (default off).
-    verbose : bool
-        Print the overlap report, per-class progress and the final summary
+    keep_extreme_values : bool
+        Keep the readings that cannot be measurements instead of masking them
         (default off).
+    verbose : bool
+        Print the overlap and masking reports, per-class progress and the
+        final summary (default off).
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if output_path.exists():
@@ -236,6 +252,10 @@ def build_features(
     total_windows = 0
     n_kept = 0
     n_dropped = 0
+    masked_per_sensor: Counter[str] = Counter()
+    masked_per_rule: Counter[str] = Counter()
+    emptied_per_sensor: Counter[str] = Counter()
+    n_masked_instances = 0
 
     try:
         current_class = None
@@ -243,6 +263,26 @@ def build_features(
             if verbose and fault_class != current_class:
                 current_class = fault_class
                 print(f"  Class {fault_class}: {FAULT_CLASSES[fault_class]}")
+
+            if not keep_extreme_values:
+                df_raw, masked = mask_extreme_values(df_raw)
+                if masked:
+                    n_masked_instances += 1
+                    per_sensor = {s: sum(rules.values()) for s, rules in masked.items()}
+                    masked_per_sensor.update(per_sensor)
+                    for rules in masked.values():
+                        masked_per_rule.update(rules)
+                    emptied = [s for s in masked if df_raw[s].isna().all()]
+                    emptied_per_sensor.update(emptied)
+                    if verbose:
+                        detail = ", ".join(
+                            f"{s} {n:,}{' (all)' if s in emptied else ''}"
+                            for s, n in sorted(per_sensor.items())
+                        )
+                        print(
+                            f"    {df_raw['instance_id'].iloc[0]}: "
+                            f"{sum(per_sensor.values()):,} implausible readings masked: {detail}"
+                        )
 
             df_clean = clean_instance(df_raw)
             del df_raw
@@ -268,6 +308,28 @@ def build_features(
             writer.close()
 
     if verbose:
+        if keep_extreme_values:
+            print("\nImplausible values: kept (--keep-extreme-values)")
+        else:
+            low, high = TEMPERATURE_LIMITS
+            print(
+                f"\nImplausible values: {sum(masked_per_sensor.values()):,} readings masked "
+                f"in {n_masked_instances} of {len(entries)} instances"
+            )
+            print(
+                f"  by rule: magnitude beyond |{EXTREME_VALUE_LIMIT:.0e}| "
+                f"{masked_per_rule['magnitude']:,} | pressure below {PRESSURE_MIN:g} "
+                f"{masked_per_rule['negative pressure']:,} | opening below {OPENING_MIN:g} "
+                f"{masked_per_rule['negative opening']:,} | temperature outside "
+                f"[{low:g}, {high:g}] C {masked_per_rule['temperature range']:,}"
+            )
+            for sensor, count in masked_per_sensor.most_common():
+                emptied = emptied_per_sensor[sensor]
+                plural = "instance" if emptied == 1 else "instances"
+                print(
+                    f"  {sensor}: {count:,} readings"
+                    + (f" ({emptied} {plural} left with no {sensor} at all)" if emptied else "")
+                )
         print(
             f"\nDone: {total_windows:,} windows from {n_kept} instances "
             f"({n_overlapping} removed as overlapping, {n_dropped} dropped by the quality filter)"

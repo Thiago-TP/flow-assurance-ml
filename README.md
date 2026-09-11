@@ -12,7 +12,8 @@ flowchart LR
   subgraph S1["Dataset building (01_build_features.py)"]
     direction TB
     A[("3W raw parquets<br/>1 file = 1 well instance")] --> A2["drop overlapping instances<br/>(kept with --allow-overlap)"]
-    A2 --> B["clean<br/>ffill ≤ 60 s · quality gate"]
+    A2 --> A3["mask implausible readings → NaN<br/>magnitude · negative pressure · temperature<br/>(kept with --keep-extreme-values)"]
+    A3 --> B["clean<br/>ffill ≤ 60 s · quality gate"]
     B --> C["z-score per instance<br/>(skipped with --no-normalization)"]
     C --> D["window 300 s / step 150 s<br/>11 stats × 8 sensors = 88 features"]
     D --> E[("data/features_<norm>.parquet<br/>norm: zscore | raw<br/>labels: window_label + fault_class")]
@@ -91,6 +92,7 @@ under a unique tag:
 | `--cv-group`         | `instance_id`, `well_id`          | `instance_id`       | 2-5    |
 | `--no-normalization` | flag                                  | off                   | 1-5    |
 | `--allow-overlap`    | flag                                  | off                   | 1-5    |
+| `--keep-extreme-values` | flag                               | off                   | 1-5    |
 | `--n-jobs`           | int (`-1` = all cores)              | `min(6, cores - 2)` | 2, 4   |
 | `--verbose`          | flag                                  | off                   | 1-5    |
 
@@ -112,6 +114,31 @@ reads and writes `_overlap` artifacts, so both datasets and their runs
 coexist; `--verbose` prints how many instances overlap and how many were
 removed, per well.
 
+`--keep-extreme-values` keeps the readings that cannot be measurements. Stage
+1 replaces them with NaN by default, so they are imputed like any other
+missing value. Four rules, each set from a survey of all 2228 instances so
+that no genuine signal is at risk — real pressure spikes are fault signatures:
+
+| Rule | Masks | Because |
+| ---- | ----- | ------- |
+| magnitude  | any sensor beyond `EXTREME_VALUE_LIMIT` (1e8), infinities included | well 6 reports `P-PDG = -1.2e42 Pa` and `T-PDG = -1.7e38 °C` for three entire instances; well 26 reports `P-JUS-CKP` around 1.4e9 Pa (14,000 bar). The largest *varying* reading below the limit is 4.9e7 and the smallest above it is 1.3e8, with nothing in between |
+| negative pressure | a sensor of `PRESSURE_SENSORS` below `PRESSURE_MIN` (0) | 3W pressures are absolute, so a negative one is a broken or mis-mapped tag — a defect the 3W paper warns about. Zero is left alone: that is the frozen-at-zero case |
+| negative opening | a sensor of `OPENING_SENSORS` (the two chokes) below `OPENING_MIN` (0) | an opening is a percentage; the one negative value in the dataset is well 30's `ABER-CKP` at −99.99 % throughout, a sentinel |
+| temperature range | a sensor of `TEMPERATURE_SENSORS` outside `TEMPERATURE_LIMITS` (−50 to 250 °C) | catches the `-999` and `-99.99` sentinels the source system leaks in, and `T-PDG` readings of 30,000 °C. The floor stays below the coldest genuine reading (`T-TPT` reaches −33.8 °C, real Joule-Thomson cooling during a blowdown — the very condition hydrates form in) |
+
+On the full dataset the default masks 6,743,993 readings across 73 instances —
+2.9M negative pressures, 2.2M by magnitude, 1.4M temperatures, 162k openings —
+emptying 81 sensor series for their instance. `--verbose` reports the totals per rule and
+per sensor, and one line per affected instance. With the flag, every stage
+reads and writes `_extremes` artifacts.
+
+> [!NOTE]
+> Masking can cost an instance: when the emptied sensor is the critical one
+> (`P-TPT`), the quality gate then discards the instance. On 3W 2.0.0 that
+> happens to 10 of 1750 instances — one whose `P-TPT` is frozen at 2.9e9 Pa
+> and nine whose `P-TPT` is negative throughout. Wells 31 and 34 lose every
+> instance they had, but no fault class loses well coverage.
+
 `--eval` selects how the tuned model is evaluated. `holdout` (default) splits
 a grouped test set (`TEST_SIZE` = 20 % of the groups, seeded) off **before**
 the hyperparameter search, runs the GroupKFold search on the remainder, and
@@ -130,6 +157,24 @@ IDs are parsed from the instance filename (`WELL-00026_... -> 26`); simulated
 and hand-drawn instances have no physical well, so they are **dropped** when
 `well_id` grouping is chosen. Well-grouped runs append `_wellcv` to their
 artifact tags.
+
+**Every class on both sides of every split.** Rare classes live in few
+groups — Severe Slugging is 31 of its 32 real instances in well 14 — so a
+random grouped split can leave a class entirely in train (never evaluated) or
+entirely in test (never learned; XGBoost even refuses to fit a fold that lacks
+a class). Stages 2 and 5 therefore repair the seeded holdout split: for each
+class missing from a side, one of its carrier groups on the other side is
+picked at random (seeded, so both stages get the same split) and moved over,
+provided the move does not strip the donor side of another class. A class that
+occurs in a single group cannot be on both sides at once, and the run stops
+with a message naming it — under `--cv-group well_id` the detection task hits
+this, Quick PCK Restriction being a single well. The hyperparameter-search
+folds and the nested outer folds get the same treatment, with one addition: a
+class carried by a single group is pinned to training in every fold and never
+validated on, the only way XGBoost can run at all. `--verbose` prints every
+move and every pinned group. Moving whole wells can shift the split
+noticeably: for prediction with `--cv-group well_id` the repaired test set
+holds 11 of 35 wells and 55 % of the windows.
 
 ## Dataset visualization
 
@@ -296,7 +341,9 @@ flowchart LR
   samples under different labels, so of every overlapping stack only the
   bottom instance survives — the rule `faults_per_well.pdf` draws.
 - **Grouped splits everywhere**, by `instance_id` (default) so windows of one
-  recording never split across train/test, or by `well_id` (`--cv-group well_id`) so all recordings of one well stay on the same side.
+  recording never split across train/test, or by `well_id` (`--cv-group well_id`) so all recordings of one well stay on the same side — and every
+  class on both sides of every split, repaired by moving carrier groups (see
+  the class-coverage note above).
 - **Selection kept separate from evaluation**: hyperparameters are chosen on
   train+val only (GroupKFold search) and the winner is scored on data the
   search never saw — a grouped holdout test set by default, or nested CV with
@@ -308,11 +355,20 @@ flowchart LR
   strategies of the original repo.
 - **Balanced classes**: RF via `class_weight="balanced"`; XGBoost via sample
   weights computed **per training fold** (the original computed them globally).
-- **Outliers preserved**: pressure spikes are fault signatures; `max_zscore`
-  captures them instead of removing them. On z-scored features it is the
-  largest absolute value of the window — a z-score relative to the instance
-  baseline, never re-normalized within the window; only on raw features
-  (`--no-normalization`) is it computed within the window itself.
+- **Outliers preserved, impossible values removed**: pressure spikes are fault
+  signatures; `max_zscore` captures them instead of removing them. On z-scored
+  features it is the largest absolute value of the window — a z-score relative
+  to the instance baseline, never re-normalized within the window; only on raw
+  features (`--no-normalization`) is it computed within the window itself.
+  What stage 1 does remove (`--keep-extreme-values` keeps it) is readings that
+  cannot be measurements at all: beyond 1e8 in magnitude, negative absolute
+  pressures or choke openings, or temperatures outside −50…250 °C. Every bound sits beyond the
+  most extreme genuine reading in the dataset, so no spike is at risk. Left
+  in, they break the pipeline in both modes: raw, a `P-PDG` of -1.2e42 exceeds
+  the float32 range XGBoost casts to and becomes infinite; z-scored, its
+  standard deviation cannot be computed at that magnitude (57,424 identical
+  values yield a spurious σ of 1.5e26 instead of 0), so the constant-sensor
+  guard misses it and the instance gets a fake, perfectly flat feature of -1.0.
 - **Per-instance z-score is optional**: `--no-normalization` builds features
   on the raw sensor values, letting absolute operating levels reach the model.
 - Deep-learning branches (CNN-1D, CNN-LSTM) of the original repo were dropped

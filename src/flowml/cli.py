@@ -8,9 +8,12 @@ from flowml.config import (
     CV_GROUPINGS,
     EVAL_MODE,
     EVAL_MODES,
+    EXTREME_VALUE_LIMIT,
     N_JOBS,
     N_SPLITS_OUTER,
+    TEMPERATURE_LIMITS,
     TEST_SIZE,
+    extreme_suffix,
     norm_suffix,
     overlap_suffix,
 )
@@ -53,6 +56,18 @@ def run_parser(description: str, with_model: bool = True) -> argparse.ArgumentPa
             "keep the real instances that overlap another recording of the same well in "
             "time; stage 1 drops them by default (they label the same samples twice), "
             "and with the flag every stage reads and writes the matching _overlap artifacts"
+        ),
+    )
+    parser.add_argument(
+        "--keep-extreme-values",
+        action="store_true",
+        help=(
+            "keep sensor readings that cannot be measurements: beyond "
+            f"|{EXTREME_VALUE_LIMIT:.0e}| in magnitude, negative pressures or choke openings, "
+            f"or temperatures outside {list(TEMPERATURE_LIMITS)} C. Stage 1 masks them as "
+            "missing data by "
+            "default, and with the flag every stage reads and writes the matching "
+            "_extremes artifacts"
         ),
     )
     parser.add_argument(
@@ -134,15 +149,17 @@ def run_tag(
     cv_group: str = CV_GROUPING,
     eval_mode: str = EVAL_MODE,
     allow_overlap: bool = False,
+    keep_extreme_values: bool = False,
 ) -> str:
     """Compose the artifact-name tag identifying one training run.
 
     The tag covers every switch that changes what stage 2 produces: model,
-    task, normalization, overlap rule, CV grouping, and evaluation protocol.
-    The defaults (overlapping instances dropped, instance grouping, holdout
-    evaluation) add no suffix; keeping overlapping instances appends
-    ``_overlap``, well-level grouping ``_wellcv`` and nested evaluation
-    ``_nested`` so all runs coexist.
+    task, normalization, overlap and extreme-value rules, CV grouping, and
+    evaluation protocol. The defaults (overlapping instances dropped, extreme
+    readings masked, instance grouping, holdout evaluation) add no suffix;
+    keeping overlapping instances appends ``_overlap``, keeping extreme
+    readings ``_extremes``, well-level grouping ``_wellcv`` and nested
+    evaluation ``_nested`` so all runs coexist.
 
     Parameters
     ----------
@@ -159,14 +176,19 @@ def run_tag(
     allow_overlap : bool
         Whether the features keep the real instances overlapping another of
         the same well.
+    keep_extreme_values : bool
+        Whether the features keep readings beyond ``EXTREME_VALUE_LIMIT``.
 
     Returns
     -------
     str
         E.g. ``"xgb_prediction_zscore"`` or
-        ``"xgb_prediction_zscore_overlap_wellcv_nested"``.
+        ``"xgb_prediction_zscore_overlap_extremes_wellcv_nested"``.
     """
-    tag = f"{model}_{task}_{norm_suffix(normalized)}{overlap_suffix(allow_overlap)}"
+    tag = (
+        f"{model}_{task}_{norm_suffix(normalized)}"
+        f"{overlap_suffix(allow_overlap)}{extreme_suffix(keep_extreme_values)}"
+    )
     if cv_group == "well_id":
         tag += "_wellcv"
     if eval_mode == "nested":

@@ -63,8 +63,27 @@ def overlap_suffix(allow_overlap: bool) -> str:
     return "_overlap" if allow_overlap else ""
 
 
-def features_path(normalized: bool = True, allow_overlap: bool = False) -> Path:
-    """Features parquet path for the given normalization and overlap rules.
+def extreme_suffix(keep_extreme_values: bool) -> str:
+    """Artifact-name suffix for the extreme-value rule the features were built under.
+
+    Parameters
+    ----------
+    keep_extreme_values : bool
+        Whether readings too large to be measurements were kept (see
+        ``preprocessing.mask_extreme_values``).
+
+    Returns
+    -------
+    str
+        ``"_extremes"`` when they were kept, ``""`` for the default dataset.
+    """
+    return "_extremes" if keep_extreme_values else ""
+
+
+def features_path(
+    normalized: bool = True, allow_overlap: bool = False, keep_extreme_values: bool = False
+) -> Path:
+    """Features parquet path for the given normalization, overlap and extreme rules.
 
     Parameters
     ----------
@@ -72,15 +91,21 @@ def features_path(normalized: bool = True, allow_overlap: bool = False) -> Path:
         Whether the features were built from per-instance z-scored sensors.
     allow_overlap : bool
         Whether overlapping real instances were kept when building them.
+    keep_extreme_values : bool
+        Whether readings beyond ``EXTREME_VALUE_LIMIT`` were kept.
 
     Returns
     -------
     Path
         ``data/features_zscore.parquet`` by default; ``raw`` replaces
-        ``zscore`` without normalization and ``_overlap`` is appended when
-        overlapping instances were kept, e.g. ``features_raw_overlap.parquet``.
+        ``zscore`` without normalization, ``_overlap`` is appended when
+        overlapping instances were kept and ``_extremes`` when extreme
+        readings were, e.g. ``features_raw_overlap_extremes.parquet``.
     """
-    return DATA_DIR / f"features_{norm_suffix(normalized)}{overlap_suffix(allow_overlap)}.parquet"
+    return DATA_DIR / (
+        f"features_{norm_suffix(normalized)}"
+        f"{overlap_suffix(allow_overlap)}{extreme_suffix(keep_extreme_values)}.parquet"
+    )
 
 
 # -- 3W dataset classes -------------------------------------------------------
@@ -179,6 +204,57 @@ KEY_SENSORS = [
 FFILL_LIMIT = 60  # forward-fill gaps up to 60 samples (60 s at 1 Hz)
 CRITICAL_SENSOR = "P-TPT"  # instance is dropped when this sensor is too sparse
 MAX_MISSING_RATIO = 0.50  # NaN threshold on the critical sensor
+
+# What a reading must satisfy to be a measurement rather than instrument
+# garbage. Readings that fail become NaN at loading time and are imputed with
+# the rest of the missing data; ``--keep-extreme-values`` turns all three
+# rules off at once. See ``preprocessing.mask_extreme_values``.
+#
+# 1. Magnitude. The 3W dataset carries sensors frozen at absurd levels (well 6
+#    reports P-PDG = -1.2e42 Pa and T-PDG = -1.7e38 °C for whole instances)
+#    and signals off by orders of magnitude (well 26 reports P-JUS-CKP around
+#    1.4e9 Pa, i.e. 14,000 bar). Surveying every instance of 3W 2.0.0 shows a
+#    clean gap around this limit: the largest varying reading below it is
+#    4.9e7 Pa, the smallest value above it is 1.3e8, and everything from there
+#    up is garbage — so the limit removes no real signal, which matters
+#    because genuine spikes are fault signatures (see
+#    ``features.window_features``).
+EXTREME_VALUE_LIMIT = 1e8
+
+# 2. Pressures are absolute (Table 3 of the 3W paper) and choke openings are
+#    percentages, so a negative reading of either is impossible; the dataset
+#    has 106 files with a negative pressure, usually for the whole recording —
+#    a broken or mis-mapped tag, which the paper itself warns about — and one
+#    well reporting a choke opening of -99.99 %, a sentinel. Zero is left
+#    alone: it is the frozen-at-zero case, a different defect.
+PRESSURE_MIN = 0.0
+OPENING_MIN = 0.0
+
+# 3. Temperatures live in a narrow physical band. The floor is below every
+#    genuine reading of the dataset (T-TPT reaches -33.8 °C, which is real:
+#    Joule-Thomson cooling during a blowdown is exactly the condition hydrates
+#    form in), and the ceiling is twice the hottest one (127.7 °C). The band
+#    catches the two sentinel values the PIMS leaks into the data, -999 and
+#    -99.99, as well as T-PDG readings of 30,000 °C.
+TEMPERATURE_LIMITS = (-50.0, 250.0)
+
+# The variables each rule applies to, by physical quantity (Table 2 of the 3W
+# paper). Everything else — valve states, flow rates — is subject to the
+# magnitude rule only.
+PRESSURE_SENSORS = (
+    "P-ANULAR",
+    "P-JUS-BS",
+    "P-JUS-CKGL",
+    "P-JUS-CKP",
+    "P-MON-CKGL",
+    "P-MON-CKP",
+    "P-MON-SDV-P",
+    "P-PDG",
+    "P-TPT",
+    "PT-P",
+)
+TEMPERATURE_SENSORS = ("T-JUS-CKP", "T-MON-CKP", "T-PDG", "T-TPT")
+OPENING_SENSORS = ("ABER-CKGL", "ABER-CKP")  # gas-lift and production choke
 
 # -- Feature engineering ------------------------------------------------------
 

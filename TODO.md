@@ -64,5 +64,32 @@
   and the flat-signal guard on instance pages, and finally a verbatim split into the
   `flowml.visualization` package: `common`, `instances`, `signatures`, `wells`, `timeline`, with the
   public API re-exported so the stage-0 script's imports did not change.)
-- [ ] some real instances present extreme values of sensor data. For example, well 6 has P-PDG and T-PDG values of magnitude greater than 10^32. This breaks classifiers when the `--no-normalization` flag is up. Proposal: make the default behavior of the pipeline to, at data loading time, swap extreme values with NaN, which will be subject to later imputation. This can be deactivated with flag `--keep-extreme-values`.
-- [ ] the Severe Slugging class (default number: 3) is effectively monopolized by well 14: 31 of the 32 real instances (96.875%) from this fault class come from it, with the remaining one coming from well 1. Therefore, train/validation/testing splits may lead to a configuration where no Severe Slugging is seen during training, breaking classifier evaluation and, more importantly, making it wholly unable of predicting the "missing" fault. Proposal: at run time, it must be ensured that training and test splits present all classes. If they don't, then one instance (`--cv-group instance_id`) or well (`--cv-group well_id`) is picked at random and moved into the empty split. Then the splits are checked again, and if valid, the pipeline is carried out as normal; if not, the splits are reset and a different instance/well is picked at random again. If after all instances/wells are picked no configuration is valid, then the pipeline breaks. User should be notified of what's happening through `--verbose` logs.
+- [X] some real instances present extreme values of sensor data. For example, well 6 has P-PDG and T-PDG values of magnitude greater than 10^32. This breaks classifiers when the `--no-normalization` flag is up. Proposal: make the default behavior of the pipeline to, at data loading time, swap extreme values with NaN, which will be subject to later imputation. This can be deactivated with flag `--keep-extreme-values`.
+  (Done: `preprocessing.mask_extreme_values` replaces with NaN, at loading time and before
+  cleaning, every reading that cannot be a measurement, so the forward-fill and the model's
+  imputer handle them like any other missing value. Three rules, all bounded by a survey of
+  every instance of 3W 2.0.0 so that no genuine spike is at risk: magnitude beyond
+  `EXTREME_VALUE_LIMIT` (1e8; largest varying reading below it 4.9e7, smallest above it 1.3e8),
+  pressures below `PRESSURE_MIN` (0 — 3W pressures are absolute; zero is left for the frozen
+  sensor item), and temperatures outside `TEMPERATURE_LIMITS` (-50 to 250 C, which keeps the
+  genuine -33.8 C of Joule-Thomson cooling and catches the -999/-99.99 sentinels and the
+  30,000 C readings). Together they mask 6,582,455 readings in 72 instances and, via the
+  quality gate, cost 10 instances whose `P-TPT` was garbage throughout; wells 31 and 34 lose
+  all their instances but no fault class loses well coverage.
+  `--keep-extreme-values` is a shared switch like `--allow-overlap`, turning all the rules
+  off and tagging the features parquet and downstream artifacts with `_extremes`; `--verbose`
+  reports the masking per rule, per sensor and per instance. A fourth rule followed: negative
+  choke openings (`OPENING_SENSORS`, `OPENING_MIN`), which the dataset has in exactly one
+  file — well 30's `ABER-CKP` at -99.99 % for all 161,538 samples.)
+- [X] the Severe Slugging class (default number: 3) is effectively monopolized by well 14: 31 of the 32 real instances (96.875%) from this fault class come from it, with the remaining one coming from well 1. Therefore, train/validation/testing splits may lead to a configuration where no Severe Slugging is seen during training, breaking classifier evaluation and, more importantly, making it wholly unable of predicting the "missing" fault. Proposal: at run time, it must be ensured that training and test splits present all classes. If they don't, then one instance (`--cv-group instance_id`) or well (`--cv-group well_id`) is picked at random and moved into the empty split. Then the splits are checked again, and if valid, the pipeline is carried out as normal; if not, the splits are reset and a different instance/well is picked at random again. If after all instances/wells are picked no configuration is valid, then the pipeline breaks. User should be notified of what's happening through `--verbose` logs.
+  (Done, as proposed and a step further. `train_val_test.repair_holdout` fixes the seeded holdout
+  split that stages 2 and 5 share: for each class missing from a side, a carrier group on the other
+  side is picked at random (seeded) and moved, accepted only if the donor keeps every class it has,
+  otherwise another carrier is tried; a class living in a single group stops the run with a message
+  naming it. Today that repair moves one instance in detection/instance_id (class 7), four wells in
+  prediction/well_id, and stops detection/well_id, where Quick PCK Restriction is one well. The step
+  further: XGBoost 3.x refuses to fit a fold that lacks a class, so the search folds and the nested
+  outer folds get the same repair (`coverage_folds`), plus pinning — a class carried by a single
+  group stays in every training fold and is never validated on. `--verbose` prints every move and
+  every pinned group. Note that moving whole wells shifts the split: prediction/well_id ends with
+  11 of 35 wells and 55 % of the windows in test.)

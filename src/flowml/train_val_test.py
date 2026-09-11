@@ -183,6 +183,7 @@ def load_task_data(
     normalized: bool = True,
     cv_group: str = CV_GROUPING,
     allow_overlap: bool = False,
+    keep_extreme_values: bool = False,
 ) -> TaskData:
     """Load the features parquet and assemble the dataset for one task.
 
@@ -203,6 +204,10 @@ def load_task_data(
         Load the features built with the overlapping real instances kept
         (the ``_overlap`` parquet) instead of the default ones, from which
         stage 1 dropped them.
+    keep_extreme_values : bool
+        Load the features built with the extreme readings kept (the
+        ``_extremes`` parquet) instead of the default ones, in which stage 1
+        masked them.
 
     Returns
     -------
@@ -211,10 +216,12 @@ def load_task_data(
     """
     if cv_group not in CV_GROUPINGS:
         raise ValueError(f"Unknown cv_group: {cv_group!r} (expected {CV_GROUPINGS})")
-    path = features_path(normalized, allow_overlap)
+    path = features_path(normalized, allow_overlap, keep_extreme_values)
     if not path.exists():
-        flags = ("" if normalized else " --no-normalization") + (
-            " --allow-overlap" if allow_overlap else ""
+        flags = (
+            ("" if normalized else " --no-normalization")
+            + (" --allow-overlap" if allow_overlap else "")
+            + (" --keep-extreme-values" if keep_extreme_values else "")
         )
         raise FileNotFoundError(
             f"{path} not found. Build it first:\n  uv run scripts/01_build_features.py{flags}"
@@ -297,6 +304,9 @@ def search_hyperparameters(
 ) -> RandomizedSearchCV:
     """Run a grouped randomized hyperparameter search optimizing F1-macro.
 
+    The search folds come from ``coverage_folds``, so every training fold
+    holds every class of the data — XGBoost refuses to fit otherwise.
+
     Parameters
     ----------
     model_type : str
@@ -320,11 +330,21 @@ def search_hyperparameters(
     y_enc = encoder.transform(data.y)
     print(f"Labels {np.unique(data.y)} = {encoder.classes_} -> {np.unique(y_enc)}")
 
+    if verbose:
+        print(f"  Class coverage of the {N_SPLITS_CV} search folds:")
+    folds = coverage_folds(
+        data.y,
+        data.groups,
+        N_SPLITS_CV,
+        np.random.default_rng(RANDOM_STATE),
+        data.label_map,
+        verbose,
+    )
     search = RandomizedSearchCV(
         estimator=pipe,
         param_distributions=grid,
         n_iter=N_ITER_SEARCH,
-        cv=GroupKFold(n_splits=N_SPLITS_CV),
+        cv=folds,
         scoring="f1_macro",
         n_jobs=n_jobs,
         random_state=RANDOM_STATE,
@@ -360,18 +380,240 @@ def subset_task_data(data: TaskData, idx: np.ndarray) -> TaskData:
     return replace(data, X=data.X[idx], y=data.y[idx], groups=data.groups[idx], n_windows=len(idx))
 
 
-def holdout_split(data: TaskData) -> tuple[np.ndarray, np.ndarray]:
+def _carriers(y: np.ndarray, groups: np.ndarray) -> dict[int, list]:
+    """Sorted list of the groups in which each class occurs."""
+    frame = pd.DataFrame({"y": y, "group": groups}).drop_duplicates()
+    return {int(c): sorted(part["group"].tolist()) for c, part in frame.groupby("y")}
+
+
+def _class_name(label: int, label_map: dict[int, str]) -> str:
+    """``"3 Severe Slugging"``-style name of a class for the logs."""
+    return f"{label} {label_map.get(label, '')}".rstrip()
+
+
+def _missing_classes(y: np.ndarray, groups: np.ndarray, members: set) -> list[int]:
+    """Classes of ``y`` that no group of ``members`` carries."""
+    present = set(np.unique(y[np.isin(groups, list(members))]))
+    return sorted(set(np.unique(y)) - present)
+
+
+def repair_holdout(
+    y: np.ndarray,
+    groups: np.ndarray,
+    test_groups: set,
+    rng: np.random.Generator,
+    label_map: dict[int, str],
+    verbose: bool = False,
+    max_rounds: int = 50,
+) -> set:
+    """Move groups across a train/test split until every class sits on both sides.
+
+    A class present on one side only is either never learned or never
+    evaluated — Severe Slugging lives almost entirely in well 14, so a random
+    grouped split by well easily lands all of it in one part. For each class
+    missing from a side, one of its carrier groups on the other side is
+    picked at random and moved over; the move is accepted only if it does not
+    strip the donor side of some other class, otherwise the split is reset and
+    another carrier is tried. A class no move can place on both sides — one
+    that occurs in a single group — makes the configuration impossible, and
+    the pipeline stops with a message saying which class and which group.
+
+    Parameters
+    ----------
+    y : np.ndarray
+        Labels of every row.
+    groups : np.ndarray
+        Group key of every row.
+    test_groups : set
+        Groups currently held out; every other group is in train.
+    rng : np.random.Generator
+        Source of the random picks. Seeding it with ``RANDOM_STATE`` keeps
+        the repaired split identical across the stages that share it.
+    label_map : dict[int, str]
+        Class names for the log.
+    verbose : bool
+        Print every violation found and every move made (default off).
+    max_rounds : int
+        Safety bound on the number of moves.
+
+    Returns
+    -------
+    set
+        The repaired set of test groups.
+    """
+    all_groups = set(np.unique(groups))
+    test = set(test_groups)
+    carriers = _carriers(y, groups)
+
+    for _ in range(max_rounds):
+        train = all_groups - test
+        violations = [(c, "train") for c in _missing_classes(y, groups, train)] + [
+            (c, "test") for c in _missing_classes(y, groups, test)
+        ]
+        if not violations:
+            return test
+
+        label, empty_side = violations[0]
+        if len(carriers[label]) < 2:
+            raise ValueError(
+                f"Cannot give every class to both splits: class {_class_name(label, label_map)} "
+                f"occurs in a single group ({carriers[label][0]!r}), so it can never be in "
+                "train and test at once. Group by instance_id (--cv-group instance_id) or "
+                "leave the class out."
+            )
+        donor_side = train if empty_side == "test" else test
+        donors = [g for g in carriers[label] if g in donor_side]
+        rng.shuffle(donors)
+        for group in donors:
+            # The move is valid only if the donor keeps at least one carrier
+            # of every class it has — otherwise this is a "reset and try
+            # another group" in the proposal's terms.
+            strips = [
+                c
+                for c, gs in carriers.items()
+                if group in gs and not any(g in donor_side and g != group for g in gs)
+            ]
+            if strips:
+                continue
+            if empty_side == "test":
+                test.add(group)
+            else:
+                test.discard(group)
+            if verbose:
+                n_rows = int((groups == group).sum())
+                print(
+                    f"    class {_class_name(label, label_map)} missing from {empty_side}: "
+                    f"moved group {group!r} ({n_rows:,} windows) into it"
+                )
+            break
+        else:
+            raise ValueError(
+                f"Cannot give every class to both splits: every group carrying class "
+                f"{_class_name(label, label_map)} on the other side is the only carrier there "
+                "of some other class, so no move fixes one without breaking another."
+            )
+    raise ValueError(f"Holdout repair did not converge in {max_rounds} moves")
+
+
+def coverage_folds(
+    y: np.ndarray,
+    groups: np.ndarray,
+    n_splits: int,
+    rng: np.random.Generator,
+    label_map: dict[int, str],
+    verbose: bool = False,
+    max_rounds: int = 50,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Grouped K folds whose every training part contains every class.
+
+    Starts from ``GroupKFold`` and fixes it in two ways. A class whose
+    carrier groups are all held out in the same fold is missing from that
+    fold's training part, so one carrier is moved to another fold; the fix
+    repeats until no fold lacks a class. A class carried by a single group
+    cannot be in every training part and held out somewhere as well, so that
+    group is pinned to training: it is never held out, and the class is never
+    validated on — the only way an estimator that refuses training data with
+    a missing class (XGBoost does) can run at all.
+
+    Parameters
+    ----------
+    y : np.ndarray
+        Labels of every row.
+    groups : np.ndarray
+        Group key of every row.
+    n_splits : int
+        Number of folds.
+    rng : np.random.Generator
+        Source of the random picks.
+    label_map : dict[int, str]
+        Class names for the log.
+    verbose : bool
+        Print every pinned group and every move made (default off).
+    max_rounds : int
+        Safety bound on the number of moves.
+
+    Returns
+    -------
+    list[(np.ndarray, np.ndarray)]
+        Row indices of the training and held-out part of every fold, in the
+        form ``RandomizedSearchCV`` accepts as ``cv``.
+    """
+    carriers = _carriers(y, groups)
+    held_in: dict = {}  # group -> fold it is held out in
+    for fold, (_, held) in enumerate(GroupKFold(n_splits=n_splits).split(y, y, groups)):
+        for group in np.unique(groups[held]):
+            held_in[group] = fold
+
+    pinned = {gs[0] for gs in carriers.values() if len(gs) == 1}
+    if verbose:
+        for label, gs in sorted(carriers.items()):
+            if len(gs) == 1:
+                print(
+                    f"    class {_class_name(label, label_map)} has a single group "
+                    f"({gs[0]!r}): kept in every training fold, never validated on"
+                )
+
+    def concentrated() -> list[int]:
+        """Classes whose free carriers are all held out in the same fold."""
+        return [
+            label
+            for label, gs in sorted(carriers.items())
+            if len(free := [g for g in gs if g not in pinned]) >= 2
+            and len({held_in[g] for g in free}) == 1
+        ]
+
+    for _ in range(max_rounds):
+        broken = concentrated()
+        if not broken:
+            break
+        label = broken[0]
+        free = [g for g in carriers[label] if g not in pinned]
+        fold = held_in[free[0]]
+        options = [(g, t) for g in free for t in range(n_splits) if t != fold]
+        options = [options[i] for i in rng.permutation(len(options))]
+        # Prefer a move that frees this class without concentrating another:
+        # a group carrying two rare classes would otherwise ping-pong between
+        # folds. When no move is that clean, take one anyway and keep going.
+        group, target = options[0]
+        for candidate, destination in options:
+            held_in[candidate] = destination
+            after = concentrated()
+            held_in[candidate] = fold
+            if label not in after and not set(after) - set(broken):
+                group, target = candidate, destination
+                break
+        held_in[group] = target
+        if verbose:
+            print(
+                f"    class {_class_name(label, label_map)}: all its {len(free)} groups held "
+                f"out together in fold {fold + 1}; moved group {group!r} to fold {target + 1}"
+            )
+    else:
+        raise ValueError(f"Fold repair did not converge in {max_rounds} rounds")
+
+    folds = []
+    for fold in range(n_splits):
+        held = np.array([g in held_in and held_in[g] == fold and g not in pinned for g in groups])
+        folds.append((np.flatnonzero(~held), np.flatnonzero(held)))
+    return folds
+
+
+def holdout_split(data: TaskData, verbose: bool = False) -> tuple[np.ndarray, np.ndarray]:
     """Split off the seeded grouped test set shared by every holdout consumer.
 
-    The split depends only on the groups and ``RANDOM_STATE``, so every stage
-    that calls it on the same dataset (same task, normalization, and CV
-    grouping) holds out exactly the same groups — the ensemble and the
-    distilled tree are judged on identical test data.
+    The split depends only on the groups and ``RANDOM_STATE`` — including the
+    random picks of the repair that guarantees every class on both sides (see
+    ``repair_holdout``) — so every stage that calls it on the same dataset
+    (same task, normalization, and CV grouping) holds out exactly the same
+    groups: the ensemble and the distilled tree are judged on identical test
+    data.
 
     Parameters
     ----------
     data : TaskData
         Dataset returned by ``load_task_data``.
+    verbose : bool
+        Print the class-coverage repair of the split (default off).
 
     Returns
     -------
@@ -379,7 +621,25 @@ def holdout_split(data: TaskData) -> tuple[np.ndarray, np.ndarray]:
         Row indices of the train+val part and of the test part.
     """
     splitter = GroupShuffleSplit(n_splits=1, test_size=TEST_SIZE, random_state=RANDOM_STATE)
-    return next(splitter.split(data.X, data.y, data.groups))
+    _, test_idx = next(splitter.split(data.X, data.y, data.groups))
+    if verbose:
+        print("  Class coverage of the holdout split:")
+    test_groups = repair_holdout(
+        data.y,
+        data.groups,
+        set(np.unique(data.groups[test_idx])),
+        np.random.default_rng(RANDOM_STATE),
+        data.label_map,
+        verbose,
+    )
+    in_test = np.isin(data.groups, list(test_groups))
+    if verbose:
+        print(
+            f"    every class present in both parts: train {len(set(data.groups) - test_groups)} "
+            f"groups / {int((~in_test).sum()):,} windows, test {len(test_groups)} groups / "
+            f"{int(in_test.sum()):,} windows"
+        )
+    return np.flatnonzero(~in_test), np.flatnonzero(in_test)
 
 
 def holdout_evaluation(
@@ -411,7 +671,7 @@ def holdout_evaluation(
         predictions (``group``, ``fold`` = 1, ``y_true``, ``y_pred``), and a
         summary of the split sizes.
     """
-    trainval_idx, test_idx = holdout_split(data)
+    trainval_idx, test_idx = holdout_split(data, verbose)
     trainval = subset_task_data(data, trainval_idx)
 
     encoder = LabelEncoder().fit(trainval.y)
@@ -447,7 +707,9 @@ def nested_evaluation(
     uses all data for evaluation, at roughly ``N_SPLITS_OUTER`` times the
     cost of the holdout protocol. Note the selected hyperparameters may
     differ between folds — the evaluation describes the *procedure*, not one
-    fixed configuration.
+    fixed configuration. The outer folds come from ``coverage_folds``: a
+    class carried by a single group is pinned to training and therefore never
+    evaluated, which the verbose log reports.
 
     Parameters
     ----------
@@ -467,10 +729,19 @@ def nested_evaluation(
         ``y_true``, ``y_pred``) and one record per outer fold with the
         selected parameters and its validation/test F1-macro.
     """
-    outer = GroupKFold(n_splits=N_SPLITS_OUTER)
+    if verbose:
+        print(f"  Class coverage of the {N_SPLITS_OUTER} outer folds:")
+    outer = coverage_folds(
+        data.y,
+        data.groups,
+        N_SPLITS_OUTER,
+        np.random.default_rng(RANDOM_STATE),
+        data.label_map,
+        verbose,
+    )
     parts, records = [], []
 
-    for fold, (train_idx, test_idx) in enumerate(outer.split(data.X, data.y, data.groups), start=1):
+    for fold, (train_idx, test_idx) in enumerate(outer, start=1):
         print(f"  Outer fold {fold}/{N_SPLITS_OUTER}: inner search...")
         train = subset_task_data(data, train_idx)
         encoder = LabelEncoder().fit(train.y)

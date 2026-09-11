@@ -55,7 +55,6 @@ import numpy as np
 import pandas as pd
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import f1_score
-from sklearn.model_selection import GroupKFold
 from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeClassifier, export_text, plot_tree
 
@@ -68,11 +67,13 @@ from flowml.config import (
     N_SPLITS_CV,
     RANDOM_STATE,
     WINDOW_CLASSES,
+    extreme_suffix,
     norm_suffix,
     overlap_suffix,
 )
 from flowml.evaluation import global_metrics, per_class_metrics, plot_confusion_matrix
 from flowml.train_val_test import (
+    coverage_folds,
     group_labels,
     grouping_label_map,
     holdout_split,
@@ -112,7 +113,11 @@ def val_predictions(max_depth: int, X: np.ndarray, y: np.ndarray, groups: np.nda
     """Compute grouped out-of-fold validation predictions for one tree depth.
 
     Used only to *select* the depth on train+val; the selected depth is then
-    scored on the held-out test set, never on these folds.
+    scored on the held-out test set, never on these folds. The folds are the
+    class-coverage-repaired grouped folds of ``train_val_test.coverage_folds``
+    — the same construction the ensemble search uses — so a class pinned to
+    training there is pinned here too and keeps its out-of-fold prediction
+    unset; such rows are excluded from the sweep score.
 
     Parameters
     ----------
@@ -123,15 +128,17 @@ def val_predictions(max_depth: int, X: np.ndarray, y: np.ndarray, groups: np.nda
     y : np.ndarray
         Train+val labels (decision trees accept non-contiguous integers).
     groups : np.ndarray
-        Group key per row for GroupKFold.
+        Group key per row of the grouped folds.
 
     Returns
     -------
     np.ndarray
-        Out-of-fold validation predictions aligned with ``y``.
+        Out-of-fold validation predictions aligned with ``y``; ``-1`` where a
+        row was never held out.
     """
-    y_pred = np.empty_like(y)
-    for train_idx, val_idx in GroupKFold(n_splits=N_SPLITS_CV).split(X, y, groups):
+    y_pred = np.full_like(y, -1)
+    folds = coverage_folds(y, groups, N_SPLITS_CV, np.random.default_rng(RANDOM_STATE), {})
+    for train_idx, val_idx in folds:
         pipe = make_tree_pipeline(max_depth)
         pipe.fit(X[train_idx], y[train_idx])
         y_pred[val_idx] = pipe.predict(X[val_idx])
@@ -168,7 +175,7 @@ def run_strategy(
     y_eval : np.ndarray
         Train+val labels the validation predictions are scored against.
     groups : np.ndarray
-        Group key per row for GroupKFold.
+        Group key per row of the grouped folds.
     grouping : str
         Grouping used to collapse predictions when ``collapse_predictions``.
     collapse_predictions : bool
@@ -178,16 +185,21 @@ def run_strategy(
     Returns
     -------
     dict
-        ``sweep`` (depth -> validation F1-macro) and ``best_depth``.
+        ``sweep`` (depth -> validation F1-macro) and ``best_depth``. Rows a
+        pinned group keeps in training throughout (see ``val_predictions``)
+        have no validation prediction and are left out of the score.
     """
     print(f"\n  Strategy '{name}' — depth sweep (validation):")
     sweep: dict[int, float] = {}
 
     for depth in depths:
         y_pred = val_predictions(depth, X, y_train, groups)
+        scored = y_pred != -1
         if collapse_predictions:
-            y_pred = group_labels(y_pred, grouping)
-        sweep[depth] = round(float(f1_score(y_eval, y_pred, average="macro", zero_division=0)), 4)
+            y_pred[scored] = group_labels(y_pred[scored], grouping)
+        sweep[depth] = round(
+            float(f1_score(y_eval[scored], y_pred[scored], average="macro", zero_division=0)), 4
+        )
         print(f"    depth={depth}: val F1-macro = {sweep[depth]:.4f}")
 
     best_depth = max(sweep, key=sweep.get)
@@ -269,10 +281,18 @@ def main() -> None:
     depths = [int(d) for d in args.depths.split(",")]
 
     normalized = not args.no_normalization
-    tag = run_tag(args.model, args.task, normalized, args.cv_group, args.eval, args.allow_overlap)
+    tag = run_tag(
+        args.model,
+        args.task,
+        normalized,
+        args.cv_group,
+        args.eval,
+        args.allow_overlap,
+        args.keep_extreme_values,
+    )
     dtag = (
         f"dt_{args.task}_{norm_suffix(normalized)}{overlap_suffix(args.allow_overlap)}"
-        f"_from_{args.model}"
+        f"{extreme_suffix(args.keep_extreme_values)}_from_{args.model}"
     )
     if args.cv_group == "well_id":
         dtag = f"{dtag}_wellcv"
@@ -297,11 +317,13 @@ def main() -> None:
     print(f"Decision tree — {dtag}")
     print(f"  Top {args.top_n} SHAP features ({args.model}): {top_features}")
 
-    data = load_task_data(args.task, normalized, args.cv_group, args.allow_overlap)
+    data = load_task_data(
+        args.task, normalized, args.cv_group, args.allow_overlap, args.keep_extreme_values
+    )
     col_idx = [data.feature_cols.index(f) for f in top_features]
     X = data.X[:, col_idx]
 
-    trainval_idx, test_idx = holdout_split(data)
+    trainval_idx, test_idx = holdout_split(data, args.verbose)
     X_tv, X_test = X[trainval_idx], X[test_idx]
     groups_tv = data.groups[trainval_idx]
     print(
@@ -322,7 +344,10 @@ def main() -> None:
             share = 100 * n / len(y_eval)
             print(f"    {cls} {label_map[cls]:<16}: {n:>8,} ({share:.1f}%)")
 
-    print(f"\n[1/2] Depth sweeps on train+val (GroupKFold({N_SPLITS_CV}) validation)...")
+    print(
+        f"\n[1/2] Depth sweeps on train+val "
+        f"({N_SPLITS_CV} grouped folds, class coverage repaired)..."
+    )
     results = {
         name: run_strategy(
             name,

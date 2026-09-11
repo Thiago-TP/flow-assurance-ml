@@ -11,6 +11,11 @@ Data used to select hyperparameters never evaluates the selection:
   data (~N_SPLITS_OUTER times slower). The saved model comes from one final
   search on all data; its tuning score is validation-only.
 
+Every split is repaired so that each class is present on both of its sides
+(``train_val_test.repair_holdout`` and ``coverage_folds``): a class that lives
+in a single group stops the run under ``holdout`` and is pinned to training —
+never evaluated — under ``nested``.
+
 Evaluation and interpretation consume the artifacts written here, they never
 retrain.
 
@@ -61,12 +66,22 @@ def main() -> None:
     """Parse arguments, run the evaluation protocol, and write the artifacts."""
     args = run_parser(__doc__.splitlines()[0]).parse_args()
     normalized = not args.no_normalization
-    tag = run_tag(args.model, args.task, normalized, args.cv_group, args.eval, args.allow_overlap)
+    tag = run_tag(
+        args.model,
+        args.task,
+        normalized,
+        args.cv_group,
+        args.eval,
+        args.allow_overlap,
+        args.keep_extreme_values,
+    )
 
     print(f"Training {tag} | started {datetime.now().astimezone():%Y-%m-%d %H:%M:%S}")
 
     print("\n[1/3] Loading dataset...")
-    data = load_task_data(args.task, normalized, args.cv_group, args.allow_overlap)
+    data = load_task_data(
+        args.task, normalized, args.cv_group, args.allow_overlap, args.keep_extreme_values
+    )
     print(
         f"  {data.n_windows:,} windows | {len(data.feature_cols)} features "
         f"| {pd.Series(data.groups).nunique()} groups ({args.cv_group})"
@@ -119,6 +134,7 @@ def main() -> None:
         "task": args.task,
         "normalization": norm_suffix(normalized),
         "overlapping_instances": "kept" if args.allow_overlap else "dropped",
+        "extreme_values": "kept" if args.keep_extreme_values else "masked",
         "cv_group": args.cv_group,
         "trained_at": datetime.now().astimezone().isoformat(),
         "dataset": {
@@ -128,7 +144,10 @@ def main() -> None:
             "n_classes": len(encoder.classes_),
         },
         "search": {
-            "strategy": f"GroupKFold(n_splits={N_SPLITS_CV}, groups={args.cv_group})",
+            "strategy": (
+                f"GroupKFold(n_splits={N_SPLITS_CV}, groups={args.cv_group}), "
+                "repaired so every training fold holds every class"
+            ),
             "scoring": "f1_macro",
             "best_score_validation": round(float(search.best_score_), 4),
         },

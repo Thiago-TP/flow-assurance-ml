@@ -60,6 +60,7 @@ def main() -> None:
         args.cv_group,
         args.eval,
         args.allow_overlap,
+        args.keep_extreme_values,
     )
     eval_path = METRICS_DIR / f"{source_tag}_eval.parquet"
     if not eval_path.exists():

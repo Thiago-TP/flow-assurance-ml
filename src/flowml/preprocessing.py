@@ -5,14 +5,21 @@ one well), organized in folders ``0/`` .. ``9/`` named after the fault class.
 This module turns those raw files into clean, per-instance-normalized sensor
 series ready for feature extraction.
 
-Loading starts with a selection step: real instances of one well are windows
-cut from the same continuous recording and often overlap in time, so the
-shared samples would enter the dataset twice, under different labels. By
-default the overlapping instances are dropped (see ``select_instances``);
-``allow_overlap`` keeps them all.
+Two defaults guard against known defects of the raw data, each with a switch
+that turns it off:
+
+- real instances of one well are windows cut from the same continuous
+  recording and often overlap in time, so the shared samples would enter the
+  dataset twice, under different labels — the overlapping instances are
+  dropped (see ``select_instances``; ``allow_overlap`` keeps them all);
+- some sensors report values that cannot be measurements — magnitudes up to
+  1e42, negative absolute pressures, temperatures of 30,000 °C — and those
+  readings become NaN and are imputed later (see ``mask_extreme_values``;
+  ``keep_extreme_values`` keeps them all).
 """
 
 import re
+from collections import Counter
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
@@ -22,10 +29,21 @@ import pandas as pd
 from flowml.config import (
     CONSTANT_THRESHOLD,
     CRITICAL_SENSOR,
+    EXTREME_VALUE_LIMIT,
     FFILL_LIMIT,
     KEY_SENSORS,
     MAX_MISSING_RATIO,
+    OPENING_MIN,
+    OPENING_SENSORS,
+    PRESSURE_MIN,
+    PRESSURE_SENSORS,
+    TEMPERATURE_LIMITS,
+    TEMPERATURE_SENSORS,
 )
+
+# Columns of a loaded instance that are not sensor readings: the two 3W label
+# columns and the metadata ``load_raw_instances`` attaches.
+NON_SENSOR_COLUMNS = ("class", "state", "instance_id", "well_id", "fault_class", "source_type")
 
 
 def parse_source_type(filename: str) -> str:
@@ -385,13 +403,111 @@ def iter_raw_instances(
     yield from load_raw_instances(entries)
 
 
+def mask_extreme_values(
+    df: pd.DataFrame,
+    limit: float = EXTREME_VALUE_LIMIT,
+    pressure_min: float = PRESSURE_MIN,
+    opening_min: float = OPENING_MIN,
+    temperature_limits: tuple[float, float] = TEMPERATURE_LIMITS,
+) -> tuple[pd.DataFrame, dict[str, Counter]]:
+    """Replace readings that cannot be measurements with NaN.
+
+    Four rules, each deliberately loose enough that no genuine signal is at
+    risk — real spikes are fault signatures, not noise:
+
+    ``magnitude``
+        any sensor beyond ``limit`` in absolute value, infinities included.
+        Real 3W instances carry sensors frozen at absurd levels (P-PDG at
+        -1.2e42 Pa for three whole instances of well 6) and signals off by
+        orders of magnitude (P-JUS-CKP around 1.4e9 Pa on well 26).
+    ``negative pressure``
+        a sensor of ``PRESSURE_SENSORS`` below ``pressure_min``. The 3W
+        pressures are absolute, so a negative reading is a broken or
+        mis-mapped tag; zero is left alone, being the frozen-at-zero case
+        instead.
+    ``negative opening``
+        a sensor of ``OPENING_SENSORS`` below ``opening_min``: a choke
+        opening is a percentage, and the one negative value the dataset
+        carries (-99.99 %) is a sentinel of the source system.
+    ``temperature range``
+        a sensor of ``TEMPERATURE_SENSORS`` outside ``temperature_limits``,
+        which catches the -999 and -99.99 sentinels of the source system as
+        well as readings of 30,000 °C.
+
+    No model can use such values: a z-score computed on them flattens every
+    other value of the instance, and magnitudes beyond the float32 range break
+    XGBoost outright. Masking rather than dropping keeps the timeline intact —
+    the reading becomes missing data like any other, forward-filled if the gap
+    is short (see ``clean_instance``) and imputed by the model pipeline
+    otherwise.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        One raw instance.
+    limit : float
+        Magnitude from which any reading counts as extreme (see
+        ``EXTREME_VALUE_LIMIT``).
+    pressure_min : float
+        Smallest acceptable reading of a pressure sensor.
+    opening_min : float
+        Smallest acceptable reading of a choke-opening sensor.
+    temperature_limits : (float, float)
+        Acceptable band of a temperature sensor, in °C.
+
+    Returns
+    -------
+    (pd.DataFrame, dict[str, Counter])
+        The instance with the failing readings masked — the input itself when
+        there are none — and, per sensor that lost readings, how many each
+        rule masked. A sensor left entirely NaN is the normal outcome for one
+        frozen at an impossible value, and makes its instance a candidate for
+        the quality gate of ``clean_instance``.
+    """
+    sensors = [
+        c
+        for c in df.columns
+        if c not in NON_SENSOR_COLUMNS and pd.api.types.is_numeric_dtype(df[c])
+    ]
+    values = df[sensors]
+    readings = values.to_numpy(dtype=float)
+    low, high = temperature_limits
+
+    # NaN fails every comparison, so missing data is never counted as masked.
+    failures = {"magnitude": np.abs(readings) > limit}
+    for rule, members, test in (
+        ("negative pressure", PRESSURE_SENSORS, lambda col: col < pressure_min),
+        ("negative opening", OPENING_SENSORS, lambda col: col < opening_min),
+        ("temperature range", TEMPERATURE_SENSORS, lambda col: (col < low) | (col > high)),
+    ):
+        failed = np.zeros_like(failures["magnitude"])
+        for i, sensor in enumerate(sensors):
+            if sensor in members:
+                failed[:, i] = test(readings[:, i])
+        failures[rule] = failed & ~failures["magnitude"]  # every reading counted once
+
+    counts: dict[str, Counter] = {}
+    for rule, failed in failures.items():
+        for sensor, n in zip(sensors, failed.sum(axis=0)):
+            if n:
+                counts.setdefault(sensor, Counter())[rule] = int(n)
+    if not counts:
+        return df, {}
+
+    df = df.copy()
+    df[sensors] = values.mask(np.logical_or.reduce(list(failures.values())))
+    return df, counts
+
+
 def clean_instance(df: pd.DataFrame, sensors: list[str] | None = None) -> pd.DataFrame | None:
     """Forward-fill short gaps and drop instances with a too-sparse critical sensor.
 
     The fill is causal (past values only) and capped at ``FFILL_LIMIT`` samples,
     so no future information leaks into a window. Instances whose critical
     sensor (``P-TPT`` by default) is missing in more than ``MAX_MISSING_RATIO`` of the
-    samples are considered unusable and discarded.
+    samples are considered unusable and discarded. Readings masked by
+    ``mask_extreme_values`` count as missing here, so an instance whose
+    critical sensor is mostly garbage is discarded by this gate.
 
     Parameters
     ----------
