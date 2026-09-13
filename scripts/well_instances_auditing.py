@@ -1,8 +1,12 @@
 """This script audits parquet files in the 3W dataset related to a given set of wells.
 
 It collects all parquet files (instances) for the specified well IDs and prints their amount.
-Verbosely, it prints their names along with the start and end timestamps of the data they contain,
+Unless quited, it prints their names along with the start and end timestamps of the data they contain,
 also checking for overlaps in time.
+Each overlap is checked for potential labeling conflicts as follows:
+if, pointwise within the overlapping time periods, the labels on the future instance is either "Unknown"
+or the same as the label on the past instance, then there is no conflict;
+otherwise, there is a conflict.
 
 The script is intended to be ran from the command line,
 and is not dependent/does not depend on the main pipeline stages
@@ -16,7 +20,7 @@ Usage
     uv run scripts/well_instances_auditing.py [--dataset-path PATH]
                                               [--output-file PATH]
                                               [--well-ids {all,1,2,3}]
-                                              [--verbose]
+                                              [--quiet]
 """
 
 import argparse
@@ -55,6 +59,7 @@ def pretty_print_parquet_files(
         return
 
     n_overlaps = 0
+    n_conflicts = 0
     timestamps: list[tuple[pd.Timestamp, pd.Timestamp]] = []
 
     for file in sorted(parquet_files):
@@ -70,13 +75,33 @@ def pretty_print_parquet_files(
             start_j, end_j = timestamps[j]
             if start_i < end_j and end_i > start_j:
                 n_overlaps += 1
+                # Conflict detection logic
+                # 1. load the instances
+                instance_i = pd.read_parquet(sorted(parquet_files)[i])
+                instance_j = pd.read_parquet(sorted(parquet_files)[j])
+                # 2. get the intersection period
+                idx_intersection = instance_j.index.intersection(instance_i.index)
+                labels_i = instance_i.loc[idx_intersection, "class"]
+                labels_j = instance_j.loc[idx_intersection, "class"]
+                # 3. if at any point the label of the future instance
+                #    is not unknown (NaN) and not equal to the label of the past instance, then it's a conflict
+                for label_i, label_j in zip(labels_i, labels_j):
+                    if pd.notna(label_j) and pd.notna(label_i) and label_i != label_j:
+                        n_conflicts += 1
+                        break
 
     if n_overlaps > 0:
         ratio_files = (n_overlaps + 1) / len(parquet_files)
-        msg = f"Warning: {n_overlaps + 1} ({ratio_files:.2%}) instances overlap in time."
-        len_msg = len(msg)
+        ratio_conflicts = n_conflicts / n_overlaps
+        warning_overlaps = (
+            f"Warning: {n_overlaps + 1} ({ratio_files:.2%}) instances overlap in time."
+        )
+        warning_conflicts = f"Warning: {n_conflicts} ({ratio_conflicts:.2%}) of overlaps are non-trivial labeling conflicts."
+        len_msg = max(len(warning_overlaps), len(warning_conflicts))
         print("-" * len_msg, file=output_file)
-        print(msg, file=output_file)
+        print(warning_overlaps, file=output_file)
+        print("-" * len_msg, file=output_file)
+        print(warning_conflicts, file=output_file)
         print("-" * len_msg, file=output_file)
     else:
         print("------------------", file=output_file)
@@ -107,9 +132,9 @@ def run_parser(description: str) -> argparse.ArgumentParser:
         help="Comma-separated list of well IDs to analyze (e.g., 1,2,3) or 'all' for all wells.",
     )
     parser.add_argument(
-        "--verbose",
+        "--quiet",
         action="store_true",
-        help="Enable verbose output.",
+        help="Suppress verbose output.",
     )
     return parser
 
@@ -141,10 +166,10 @@ def main(
         else:
             well_ids = {int(well_id.strip()) for well_id in args.well_ids.split(",")}
 
-    if args.verbose:
-        verbose = args.verbose
-    else:
+    if args.quiet:
         verbose = False
+    else:
+        verbose = True
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
