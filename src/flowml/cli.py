@@ -17,7 +17,7 @@ from flowml.config import (
     norm_suffix,
     overlap_suffix,
 )
-from flowml.train_val_test import MODEL_TYPES, TASKS
+from flowml.train_val_test import MODEL_TYPES, TASKS, WHITE_BOX_MODELS
 
 
 def run_parser(description: str, with_model: bool = True) -> argparse.ArgumentParser:
@@ -84,7 +84,11 @@ def run_parser(description: str, with_model: bool = True) -> argparse.ArgumentPa
             "--model",
             choices=MODEL_TYPES,
             default="xgb",
-            help="classifier (default: xgb)",
+            help=(
+                "classifier: rf = random forest, xgb = gradient boosting, "
+                "dt = a single decision tree, already interpretable, so stages 4 and 5 "
+                "are skipped for it (default: xgb)"
+            ),
         )
         parser.add_argument(
             "--task",
@@ -142,6 +146,32 @@ def add_class_grouping_arg(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def skip_if_white_box(model: str, stage: str) -> None:
+    """Exit cleanly when an interpretation stage does not apply to the model.
+
+    Stages 4 and 5 exist to read a black box: they rank what drives an
+    ensemble's predictions and distil that ranking into a compact tree. A
+    ``--model dt`` run is already that tree — stage 2 exports its rules and
+    figure itself — so both stages have nothing left to do. Called from the
+    scripts as well as skipped by ``main.py``, so that running one directly
+    says why instead of failing on a missing artifact.
+
+    Parameters
+    ----------
+    model : str
+        The ``--model`` value of the run.
+    stage : str
+        What the calling stage would have done, for the message.
+    """
+    if model in WHITE_BOX_MODELS:
+        print(
+            f"Skipped: {stage} does not apply to --model {model}, which is already "
+            "interpretable.\nIts rules and figure come from stage 2:\n"
+            "  results/metrics/<tag>_rules.txt | results/figures/<tag>_tree.png"
+        )
+        raise SystemExit(0)
+
+
 def run_tag(
     model: str,
     task: str,
@@ -164,7 +194,7 @@ def run_tag(
     Parameters
     ----------
     model : str
-        ``"rf"`` or ``"xgb"``.
+        ``"rf"``, ``"xgb"`` or ``"dt"``.
     task : str
         ``"prediction"`` or ``"detection"``.
     normalized : bool

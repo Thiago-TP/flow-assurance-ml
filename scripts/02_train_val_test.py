@@ -19,9 +19,14 @@ never evaluated — under ``nested``.
 Evaluation and interpretation consume the artifacts written here, they never
 retrain.
 
+``--model dt`` fits a single decision tree instead of an ensemble. It goes
+through the same search and the same evaluation, and additionally exports
+itself as rules and a figure — being already interpretable, it skips stages 4
+and 5, which exist to read a black box.
+
 Usage
 -----
-    uv run scripts/02_train_val_test.py [--model {rf,xgb}] [--task {prediction,detection}]
+    uv run scripts/02_train_val_test.py [--model {rf,xgb,dt}] [--task {prediction,detection}]
                                         [--eval {holdout,nested}]
                                         [--cv-group {instance_id,well_id}]
                                         [--no-normalization] [--allow-overlap]
@@ -36,6 +41,8 @@ nested)
     results/metrics/<tag>_eval.parquet      held-out test predictions
     results/metrics/<tag>_search.json       best params + validation/test scores
     results/metrics/<tag>_cv_results.csv    full search history
+    results/metrics/<tag>_rules.txt         (dt) the tree as if/else rules
+    results/figures/<tag>_tree.png          (dt) the tree drawn
 """
 
 import json
@@ -54,7 +61,9 @@ from flowml.config import (
     norm_suffix,
 )
 from flowml.evaluation import global_metrics
+from flowml.interpretation import export_tree
 from flowml.train_val_test import (
+    WHITE_BOX_MODELS,
     holdout_evaluation,
     load_task_data,
     nested_evaluation,
@@ -127,6 +136,17 @@ def main() -> None:
     joblib.dump(encoder, MODELS_DIR / f"{tag}_label_encoder.joblib")
     pd.DataFrame(search.cv_results_).to_csv(METRICS_DIR / f"{tag}_cv_results.csv", index=False)
     eval_frame.to_parquet(METRICS_DIR / f"{tag}_eval.parquet", index=False)
+
+    if args.model in WHITE_BOX_MODELS:
+        # A single tree is its own explanation, so stages 4 and 5 are skipped
+        # for it; export here what they would have produced. The tree was fit
+        # on encoded labels, so the names are keyed by encoded value.
+        export_tree(
+            search.best_estimator_.named_steps["clf"],
+            data.feature_cols,
+            {i: data.label_map.get(c, str(c)) for i, c in enumerate(encoder.classes_)},
+            tag,
+        )
 
     summary = {
         "tag": tag,

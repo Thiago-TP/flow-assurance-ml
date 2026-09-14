@@ -29,7 +29,9 @@ Usage
                                        [--cv-group {instance_id,well_id}] [--no-normalization]
                                        [--allow-overlap] [--top-n N] [--depths 2,3,4,5,6]
 
-``--model`` selects whose SHAP ranking to distill, not the tree itself.
+``--model`` selects whose SHAP ranking to distill, not the tree itself; it is
+therefore one of ``rf`` / ``xgb``, and ``--model dt`` skips this stage, that
+run being a decision tree already.
 ``--eval`` selects which stage-2 run's ranking to read; the tree itself is
 always evaluated on the seeded grouped holdout split.
 
@@ -50,15 +52,14 @@ import json
 import sys
 
 import joblib
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import f1_score
 from sklearn.pipeline import Pipeline
-from sklearn.tree import DecisionTreeClassifier, export_text, plot_tree
+from sklearn.tree import DecisionTreeClassifier
 
-from flowml.cli import add_class_grouping_arg, run_parser, run_tag
+from flowml.cli import add_class_grouping_arg, run_parser, run_tag, skip_if_white_box
 from flowml.config import (
     FAULT_CLASSES,
     FIGURES_DIR,
@@ -72,6 +73,7 @@ from flowml.config import (
     overlap_suffix,
 )
 from flowml.evaluation import global_metrics, per_class_metrics, plot_confusion_matrix
+from flowml.interpretation import export_tree
 from flowml.train_val_test import (
     coverage_folds,
     group_labels,
@@ -207,61 +209,6 @@ def run_strategy(
     return {"sweep": sweep, "best_depth": best_depth}
 
 
-def export_tree(
-    pipe: Pipeline,
-    best_depth: int,
-    top_features: list[str],
-    label_map: dict[int, str],
-    name: str,
-) -> None:
-    """Export a fitted tree pipeline as model, rules, and figure.
-
-    Parameters
-    ----------
-    pipe : Pipeline
-        Fitted imputer + decision-tree pipeline.
-    best_depth : int
-        Depth selected by the sweep (figure title/size).
-    top_features : list[str]
-        Feature names the tree was fit on.
-    label_map : dict[int, str]
-        Human-readable name per label the tree can output.
-    name : str
-        Base name for the exported artifacts.
-    """
-    tree = pipe.named_steps["clf"]
-
-    MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    METRICS_DIR.mkdir(parents=True, exist_ok=True)
-    joblib.dump(pipe, MODELS_DIR / f"{name}.joblib")
-
-    class_names = [label_map.get(c, str(c)) for c in tree.classes_]
-    rules_path = METRICS_DIR / f"{name}_rules.txt"
-    rules_path.write_text(
-        export_text(tree, feature_names=top_features, class_names=class_names),
-        encoding="utf-8",
-    )
-    print(f"  Saved: {rules_path}")
-
-    fig, ax = plt.subplots(figsize=(max(14, 2.2**best_depth), 2.5 * best_depth + 3))
-    plot_tree(
-        tree,
-        feature_names=top_features,
-        class_names=class_names,
-        filled=True,
-        rounded=True,
-        impurity=False,
-        fontsize=8,
-        ax=ax,
-    )
-    ax.set_title(f"Decision tree (depth {best_depth}) — {name}", fontsize=13, pad=10)
-    FIGURES_DIR.mkdir(parents=True, exist_ok=True)
-    tree_path = FIGURES_DIR / f"{name}_tree.png"
-    plt.savefig(tree_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    print(f"  Saved: {tree_path}")
-
-
 def main() -> None:
     """Select top SHAP features, sweep depths per strategy, and export trees."""
     parser = run_parser(__doc__.splitlines()[0])
@@ -278,6 +225,7 @@ def main() -> None:
         help="comma-separated tree depths to sweep (default: 2,3,4,5,6)",
     )
     args = parser.parse_args()
+    skip_if_white_box(args.model, "distilling a compact tree")
     depths = [int(d) for d in args.depths.split(",")]
 
     normalized = not args.no_normalization
@@ -382,7 +330,9 @@ def main() -> None:
             y_pred_test = group_labels(y_pred_test, args.class_grouping)
         y_true_test = y_eval[test_idx]
 
-        export_tree(pipe, result["best_depth"], top_features, label_map, artifact)
+        MODELS_DIR.mkdir(parents=True, exist_ok=True)
+        joblib.dump(pipe, MODELS_DIR / f"{artifact}.joblib")
+        export_tree(pipe.named_steps["clf"], top_features, label_map, artifact)
 
         pd.DataFrame(
             {

@@ -93,3 +93,20 @@
   group stays in every training fold and is never validated on. `--verbose` prints every move and
   every pinned group. Note that moving whole wells shifts the split: prediction/well_id ends with
   11 of 35 wells and 55 % of the windows in test.)
+- [X] Include a decision tree classifier as one of the model options passed to `--model`. 
+    > [!TIP]
+    > Since this model is already white-box and interpretable, 
+    > the interpretation (4th) and decision tree (5th) stages are automatically skipped.
+  (Done: `--model dt` fits a `DecisionTreeClassifier` (class-weight balanced, `DT_PARAM_GRID`
+  in `config.py`) through the same grouped search and the same holdout/nested evaluation as
+  `rf` and `xgb`. `WHITE_BOX_MODELS` in `train_val_test.py` drives the skipping: `main.py`
+  does not call stages 4 and 5, and running either directly says why and exits 0
+  (`cli.skip_if_white_box`). So that the option still yields something readable, stage 2
+  exports the fitted tree itself — `<tag>_rules.txt` and `<tag>_tree.png` — through
+  `interpretation.export_tree`, which stage 5 now shares. Every tree is drawn, however large:
+  the canvas is one `TREE_FIGURE_LEAF_WIDTH` per *leaf* by one `TREE_FIGURE_LEVEL_HEIGHT` per
+  level (sizing by depth would ask for a canvas thousands of times too wide, since real trees
+  are nowhere near full), and a tree beyond what matplotlib can rasterize loses resolution
+  rather than the figure. The search is free to pick deep trees: on prediction/zscore_overlap
+  it picks depth 12 with 171 leaves — a 30,000 x 3,900 px poster — scoring F1-macro 0.8740 on
+  the held-out test set.)

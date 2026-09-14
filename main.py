@@ -4,9 +4,12 @@ Runs the numbered scripts in ``scripts/`` in order as subprocesses, passing the
 shared switches through. Stage 1 (feature building) is skipped automatically
 when its parquet already exists, unless ``--rebuild-features`` is given.
 
+Stages 4 and 5 are skipped for ``--model dt``: a single decision tree is
+already interpretable, and stage 2 exports its rules and figure itself.
+
 Usage
 -----
-    uv run main.py [--model {rf,xgb}] [--task {prediction,detection}]
+    uv run main.py [--model {rf,xgb,dt}] [--task {prediction,detection}]
                    [--class-grouping {standard,hydrate,custom}] [--eval {holdout,nested}]
                    [--cv-group {instance_id,well_id}] [--no-normalization]
                    [--allow-overlap] [--keep-extreme-values] [--n-jobs N]
@@ -21,6 +24,7 @@ Examples
     uv run main.py                          # full fault-prediction pipeline (XGB)
     uv run main.py --max-instances 3        # quick smoke test of every stage
     uv run main.py --model rf --task detection
+    uv run main.py --model dt                # single tree; stages 4 and 5 skipped
 """
 
 import subprocess
@@ -29,6 +33,7 @@ from pathlib import Path
 
 from flowml.cli import add_class_grouping_arg, run_parser
 from flowml.config import features_path
+from flowml.train_val_test import WHITE_BOX_MODELS
 
 SCRIPTS_DIR = Path(__file__).parent / "scripts"
 
@@ -116,15 +121,24 @@ def main() -> None:
     run_stage("02_train_val_test.py", modeled)
     run_stage("03_evaluate.py", grouped)
 
-    stage4_args = list(modeled)
-    if args.skip_permutation:
-        stage4_args.append("--skip-permutation")
-    run_stage("04_interpret.py", stage4_args)
+    if args.model in WHITE_BOX_MODELS:
+        # Stages 4 and 5 read a black box: they rank what drives an ensemble
+        # and distil that into a compact tree. A single tree is that already,
+        # and stage 2 has just written its rules and figure.
+        print(
+            f"\nStages 4 and 5 skipped: --model {args.model} is already interpretable "
+            "(stage 2 exported its rules and figure)."
+        )
+    else:
+        stage4_args = list(modeled)
+        if args.skip_permutation:
+            stage4_args.append("--skip-permutation")
+        run_stage("04_interpret.py", stage4_args)
 
-    run_stage(
-        "05_decision_tree.py",
-        [*grouped, "--top-n", str(args.top_n), "--depths", args.depths],
-    )
+        run_stage(
+            "05_decision_tree.py",
+            [*grouped, "--top-n", str(args.top_n), "--depths", args.depths],
+        )
 
     print(f"\n{'=' * 70}\n  Pipeline complete.\n{'=' * 70}")
 

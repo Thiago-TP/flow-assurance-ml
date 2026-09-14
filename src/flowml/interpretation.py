@@ -12,6 +12,11 @@ Four complementary views of what drives the predictions:
 
 Every method returns a full descending ranking (feature -> score) so the
 consumer decides how many features to keep.
+
+A single decision tree needs none of them: it *is* its own explanation, so
+``export_tree`` writes it out directly as rules and a figure. Both the
+distilled tree of stage 5 and the ``--model dt`` run of stage 2 export
+themselves that way.
 """
 
 import matplotlib.pyplot as plt
@@ -19,14 +24,21 @@ import numpy as np
 import pandas as pd
 import shap
 from sklearn.inspection import permutation_importance
+from sklearn.tree import export_text, plot_tree
 
 from flowml.config import (
+    FIGURES_DIR,
+    METRICS_DIR,
     N_JOBS,
     PERM_REPEATS,
     PERM_SAMPLE,
     RANDOM_STATE,
     SHAP_SAMPLE,
     TOP_N_FEATURES,
+    TREE_FIGURE_DPI,
+    TREE_FIGURE_LEAF_WIDTH,
+    TREE_FIGURE_LEVEL_HEIGHT,
+    TREE_FIGURE_MAX_PIXELS,
 )
 
 
@@ -166,6 +178,70 @@ def shap_ranking(clf, X_imputed: np.ndarray, feature_cols: list[str]) -> pd.Seri
     values = np.abs(explainer(X_sample).values)  # (n_samples, n_features, n_classes)
     scores = values.mean(axis=(0, 2))
     return pd.Series(scores, index=feature_cols).sort_values(ascending=False)
+
+
+def export_tree(tree, feature_names: list[str], label_map: dict[int, str], name: str) -> None:
+    """Write a fitted decision tree as plain-text rules and a figure.
+
+    The tree explains itself, so no ranking is computed: the exported rules
+    and the drawing *are* the model. Both are keyed to the class values the
+    tree itself outputs, so ``label_map`` must be in the tree's own label
+    space — encoded values when the tree was fit on encoded labels.
+
+    Every tree is drawn, however large. The canvas is one
+    ``TREE_FIGURE_LEAF_WIDTH`` per leaf by one ``TREE_FIGURE_LEVEL_HEIGHT``
+    per level, and where that exceeds what matplotlib can rasterize the
+    resolution drops to fit instead of the figure being dropped.
+
+    Parameters
+    ----------
+    tree : DecisionTreeClassifier
+        Fitted tree (the bare classifier, not the pipeline).
+    feature_names : list[str]
+        Feature names aligned with the matrix the tree was fit on.
+    label_map : dict[int, str]
+        Human-readable name per class value in ``tree.classes_``.
+    name : str
+        Base name of the exported artifacts.
+    """
+    depth = tree.get_depth()
+    class_names = [label_map.get(c, str(c)) for c in tree.classes_]
+
+    METRICS_DIR.mkdir(parents=True, exist_ok=True)
+    rules_path = METRICS_DIR / f"{name}_rules.txt"
+    rules_path.write_text(
+        export_text(tree, feature_names=feature_names, class_names=class_names),
+        encoding="utf-8",
+    )
+    print(f"  Saved: {rules_path}")
+
+    width = max(14.0, TREE_FIGURE_LEAF_WIDTH * tree.get_n_leaves())
+    height = TREE_FIGURE_LEVEL_HEIGHT * depth + 3
+    dpi = min(TREE_FIGURE_DPI, TREE_FIGURE_MAX_PIXELS / max(width, height))
+    if dpi < TREE_FIGURE_DPI:
+        print(
+            f"  Tree figure: {tree.get_n_leaves()} leaves over {depth} levels need "
+            f"{width:.0f}x{height:.0f} in, so the resolution drops to {dpi:.0f} dpi "
+            "to stay within what matplotlib can rasterize."
+        )
+
+    fig, ax = plt.subplots(figsize=(width, height))
+    plot_tree(
+        tree,
+        feature_names=feature_names,
+        class_names=class_names,
+        filled=True,
+        rounded=True,
+        impurity=False,
+        fontsize=8,
+        ax=ax,
+    )
+    ax.set_title(f"Decision tree (depth {depth}) — {name}", fontsize=13, pad=10)
+    FIGURES_DIR.mkdir(parents=True, exist_ok=True)
+    tree_path = FIGURES_DIR / f"{name}_tree.png"
+    plt.savefig(tree_path, dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved: {tree_path}")
 
 
 def plot_ranking(ranking: pd.Series, title: str, xlabel: str, out_path, cmap="Blues_r") -> None:

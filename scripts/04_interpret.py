@@ -4,6 +4,9 @@ Loads the trained pipeline and ranks features with every method available for
 the model. The JSON output is the input for building compact decision trees
 on the top SHAP features.
 
+``--model dt`` skips this stage: a single decision tree is already its own
+explanation, exported as rules and a figure by stage 2.
+
 Usage
 -----
     uv run scripts/04_interpret.py [--model {rf,xgb}] [--task {prediction,detection}]
@@ -24,7 +27,7 @@ import sys
 
 import joblib
 
-from flowml.cli import run_parser, run_tag
+from flowml.cli import run_parser, run_tag, skip_if_white_box
 from flowml.config import FIGURES_DIR, METRICS_DIR, MODELS_DIR, TOP_N_FEATURES
 from flowml.interpretation import (
     mdi_importance,
@@ -46,6 +49,7 @@ def main() -> None:
         help="skip permutation importance (the slowest method)",
     )
     args = parser.parse_args()
+    skip_if_white_box(args.model, "feature-importance ranking")
     normalized = not args.no_normalization
     tag = run_tag(
         args.model,

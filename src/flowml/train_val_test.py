@@ -36,6 +36,7 @@ from sklearn.metrics import f1_score
 from sklearn.model_selection import GroupKFold, GroupShuffleSplit, RandomizedSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
+from sklearn.tree import DecisionTreeClassifier
 from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
 
@@ -44,6 +45,7 @@ from flowml.config import (
     CUSTOM_CLASS_GROUPING,
     CV_GROUPING,
     CV_GROUPINGS,
+    DT_PARAM_GRID,
     FAULT_CLASSES,
     HYDRATE_CLASS_GROUPING,
     META_COLS,
@@ -60,7 +62,12 @@ from flowml.config import (
 )
 
 TASKS = ("prediction", "detection")
-MODEL_TYPES = ("rf", "xgb")
+MODEL_TYPES = ("rf", "xgb", "dt")
+
+# Models that are already readable as they stand, so that distilling a compact
+# tree out of them (stages 4 and 5) would only reproduce what they are. The
+# pipeline skips those two stages for them; stage 2 exports the rules itself.
+WHITE_BOX_MODELS = ("dt",)
 
 _GROUPING_MAPS = {
     "hydrate": HYDRATE_CLASS_GROUPING,
@@ -257,14 +264,17 @@ def load_task_data(
 def make_pipeline(model_type: str, n_jobs: int = N_JOBS) -> tuple[Pipeline, dict]:
     """Build the imputer + classifier pipeline and its search space.
 
-    RF balances classes through ``class_weight``; XGBoost has no such
-    constructor option for the multiclass objective, so balanced sample
-    weights are passed at fit time instead (see ``search_hyperparameters``).
+    RF and the single decision tree balance classes through ``class_weight``;
+    XGBoost has no such constructor option for the multiclass objective, so
+    balanced sample weights are passed at fit time instead (see
+    ``search_hyperparameters``). The lone tree takes no ``n_jobs``: a single
+    tree is fit sequentially, and the search parallelizes over candidates and
+    folds anyway.
 
     Parameters
     ----------
     model_type : str
-        ``"rf"`` or ``"xgb"``.
+        ``"rf"``, ``"xgb"`` or ``"dt"``.
     n_jobs : int
         Parallel workers for the classifier.
 
@@ -278,6 +288,9 @@ def make_pipeline(model_type: str, n_jobs: int = N_JOBS) -> tuple[Pipeline, dict
             class_weight="balanced", random_state=RANDOM_STATE, n_jobs=n_jobs
         )
         grid = RF_PARAM_GRID
+    elif model_type == "dt":
+        clf = DecisionTreeClassifier(class_weight="balanced", random_state=RANDOM_STATE)
+        grid = DT_PARAM_GRID
     elif model_type == "xgb":
         clf = XGBClassifier(
             objective="multi:softmax",
@@ -310,7 +323,7 @@ def search_hyperparameters(
     Parameters
     ----------
     model_type : str
-        ``"rf"`` or ``"xgb"``.
+        ``"rf"``, ``"xgb"`` or ``"dt"``.
     data : TaskData
         Dataset returned by ``load_task_data``.
     encoder : LabelEncoder
@@ -656,7 +669,7 @@ def holdout_evaluation(
     Parameters
     ----------
     model_type : str
-        ``"rf"`` or ``"xgb"``.
+        ``"rf"``, ``"xgb"`` or ``"dt"``.
     data : TaskData
         Dataset returned by ``load_task_data``.
     n_jobs : int
@@ -714,7 +727,7 @@ def nested_evaluation(
     Parameters
     ----------
     model_type : str
-        ``"rf"`` or ``"xgb"``.
+        ``"rf"``, ``"xgb"`` or ``"dt"``.
     data : TaskData
         Dataset returned by ``load_task_data``.
     n_jobs : int

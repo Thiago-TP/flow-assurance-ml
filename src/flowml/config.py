@@ -304,6 +304,14 @@ N_JOBS = max(
     min(6, os.cpu_count() - 2),  # parallel workers (keep below core count to preserve RAM)
 )
 
+DT_PARAM_GRID = {
+    "clf__criterion": ["gini", "entropy"],
+    "clf__max_depth": [3, 4, 5, 6, 8, 12, None],
+    "clf__min_samples_leaf": [1, 2, 4, 8],
+    "clf__min_samples_split": [2, 5, 10],
+    "clf__max_features": [None, "sqrt"],
+}
+
 RF_PARAM_GRID = {
     "clf__n_estimators": [100, 200, 300],
     "clf__max_depth": [None, 10, 20, 30],
@@ -323,6 +331,19 @@ XGB_PARAM_GRID = {
 # -- Interpretation -----------------------------------------------------------
 
 TOP_N_FEATURES = 15  # features shown in importance plots / rankings
+
+# Canvas of an exported tree figure (see ``interpretation.export_tree``). A
+# tree is drawn one leaf per column and one level per row, so its width
+# follows the *leaf count* rather than the depth: real trees are nowhere near
+# full (the depth-12 tree of a `--model dt` run has 171 leaves, not 4096), and
+# sizing by depth would ask for a canvas thousands of times too wide. The
+# pixel cap keeps a large tree within what matplotlib can rasterize (it
+# refuses past 2**16 px a side) by lowering the resolution rather than by
+# giving up on the figure.
+TREE_FIGURE_LEAF_WIDTH = 1.5  # inches of width per leaf
+TREE_FIGURE_LEVEL_HEIGHT = 2.5  # inches of height per level
+TREE_FIGURE_DPI = 150
+TREE_FIGURE_MAX_PIXELS = 60_000
 SHAP_SAMPLE = 5_000  # windows sampled for SHAP
 PERM_SAMPLE = 10_000  # windows sampled for permutation importance
 PERM_REPEATS = 10  # shuffles per feature in permutation importance

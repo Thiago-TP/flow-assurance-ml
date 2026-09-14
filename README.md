@@ -2,7 +2,7 @@
 
 Self-contained, script-based rewrite of the flow-assurance ML pipeline for the [Petrobras 3W dataset](https://github.com/petrobras/3W).
 
-Two tasks, two tree models (Random Forest, XGBoost), four stages, one features parquet per normalization mode.
+Two tasks, three tree models (Random Forest, XGBoost, a single decision tree), four stages, one features parquet per normalization mode.
 
 ## Pipeline
 
@@ -24,6 +24,7 @@ flowchart LR
     F["02_train_val_test.py<br/>grouped search (val) + held-out test"] --> G["03_evaluate.py<br/>metrics + confusion matrix"]
     G --> H["04_interpret.py<br/>MDI · gain · permutation · SHAP"]
     H --> I["05_decision_tree.py<br/>compact tree on top SHAP features"]
+    G -. "--model dt" .-> J["done: stage 2 already<br/>exported the tree itself"]
   end
 
   S1 --> S2
@@ -85,7 +86,7 @@ under a unique tag:
 
 | Switch                 | Choices                               | Default               | Stages |
 | ---------------------- | ------------------------------------- | --------------------- | ------ |
-| `--model`            | `rf`, `xgb`                       | `xgb`               | 2-5    |
+| `--model`            | `rf`, `xgb`, `dt`               | `xgb`               | 2-5    |
 | `--task`             | `prediction`, `detection`         | `prediction`        | 2-5    |
 | `--class-grouping`   | `standard`, `hydrate`, `custom` | `standard`          | 3, 5   |
 | `--eval`             | `holdout`, `nested`               | `holdout`           | 2-5    |
@@ -95,6 +96,27 @@ under a unique tag:
 | `--keep-extreme-values` | flag                               | off                   | 1-5    |
 | `--n-jobs`           | int (`-1` = all cores)              | `min(6, cores - 2)` | 2, 4   |
 | `--verbose`          | flag                                  | off                   | 1-5    |
+
+`--model dt` fits a single decision tree where `rf` and `xgb` fit an ensemble
+of them. It runs through the same grouped hyperparameter search
+(`DT_PARAM_GRID`) and the same held-out evaluation as the other two, and stage
+2 additionally exports it as if/else rules (`results/metrics/<tag>_rules.txt`)
+and as a drawing (`results/figures/<tag>_tree.png`). Stages 4 and 5 are then
+skipped: they exist to read a black box — rank what drives an ensemble, then
+distil that ranking into a compact tree — and this model is that tree already.
+`main.py` skips them on its own, and running either one directly with
+`--model dt` prints why and exits.
+
+> [!NOTE]
+> The tree fit here is the *best* tree for the task, not a compact one: the
+> search is free to pick `max_depth = None`, and on prediction it picks depth
+> 12 with 171 leaves — a poster of a figure (30,000 × 3,900 px) rather than
+> something to read at a glance. It is still drawn in full: the canvas is
+> sized per *leaf* (`TREE_FIGURE_LEAF_WIDTH`) and per level
+> (`TREE_FIGURE_LEVEL_HEIGHT`), and a tree large enough to exceed what
+> matplotlib can rasterize loses resolution rather than the figure. For a
+> deliberately small tree, distil an ensemble with stage 5, which sweeps
+> shallow depths over the top SHAP features only.
 
 `--no-normalization` skips the per-instance z-score in stage 1 and makes every
 stage read and write the `_raw` artifacts instead of `_zscore`, so both
@@ -297,6 +319,7 @@ Stage 5 then compares two ways of reaching the grouped labels, both scored again
 flowchart LR
   T["02_train_val_test.py<br/>tag = model_task_norm"] --> M["results/models/<br/>tag.joblib · tag_label_encoder.joblib"]
   T --> O["results/metrics/<br/>tag_eval.parquet · tag_search.json · tag_cv_results.csv"]
+  T -. "--model dt" .-> R["results/metrics/tag_rules.txt<br/>results/figures/tag_tree.png"]
   O --> EV["03_evaluate.py"] --> EM["results/metrics/tag_metrics.json<br/>results/figures/tag_confusion_matrix.png"]
   M --> IN["04_interpret.py"] --> IM["results/metrics/tag_importance.json<br/>results/figures/tag_{mdi|gain,permutation,shap}.png"]
   IM --> DT["05_decision_tree.py<br/>dtag = dt_task_norm_from_model"] --> DM["results/models/dtag.joblib<br/>results/metrics/dtag_{metrics.json,rules.txt,eval.parquet}<br/>results/figures/dtag_{tree,confusion_matrix}.png"]
@@ -313,7 +336,7 @@ flowchart LR
 │   ├── features.py           windowing · 88 features · labeling
 │   ├── train_val_test.py     task datasets · pipelines · CV search · held-out evaluation
 │   ├── evaluation.py         metrics · confusion matrix
-│   ├── interpretation.py     MDI · gain · permutation · SHAP
+│   ├── interpretation.py     MDI · gain · permutation · SHAP · tree export
 │   ├── visualization/        raw-dataset plots, one module per family
 │   │   ├── common.py         palettes · dataset.ini · label bands · envelope · PDF writing
 │   │   ├── instances.py      plot_fault
@@ -353,8 +376,9 @@ flowchart LR
 - **Imputation inside the model pipeline** (`SimpleImputer(median)`), so it is
   refit per fold, avoiding leakage. This replaces the two divergent imputation
   strategies of the original repo.
-- **Balanced classes**: RF via `class_weight="balanced"`; XGBoost via sample
-  weights computed **per training fold** (the original computed them globally).
+- **Balanced classes**: RF and the single decision tree via
+  `class_weight="balanced"`; XGBoost via sample weights computed **per training
+  fold** (the original computed them globally).
 - **Outliers preserved, impossible values removed**: pressure spikes are fault
   signatures; `max_zscore` captures them instead of removing them. On z-scored
   features it is the largest absolute value of the window — a z-score relative
