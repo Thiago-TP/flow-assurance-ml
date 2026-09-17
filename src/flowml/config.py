@@ -20,14 +20,15 @@ RESULTS_DIR = PACKAGE_ROOT / "results"
 MODELS_DIR = RESULTS_DIR / "models"
 METRICS_DIR = RESULTS_DIR / "metrics"
 FIGURES_DIR = RESULTS_DIR / "figures"
+VISUALIZATION_DIR = PACKAGE_ROOT / "plots"
 
 # The dataset plots of stage 0 (see the ``visualization`` package) come in hundreds of
 # files, so each family gets its own directory instead of sharing the one the
 # modeling stages write their figures into. The fault timeline lives with the
 # well histories because it is read alongside them: both are per-well views.
-INSTANCE_FIGURES_DIR = FIGURES_DIR / "instances_per_fault"
-WELL_HISTORY_FIGURES_DIR = FIGURES_DIR / "well_histories"
-SIGNATURE_FIGURES_DIR = FIGURES_DIR / "fault_signatures"
+INSTANCE_FIGURES_DIR = VISUALIZATION_DIR / "instances_per_fault"
+WELL_HISTORY_FIGURES_DIR = VISUALIZATION_DIR / "well_histories"
+SIGNATURE_FIGURES_DIR = VISUALIZATION_DIR / "fault_signatures"
 
 
 def norm_suffix(normalized: bool) -> str:
