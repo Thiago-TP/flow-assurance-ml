@@ -27,7 +27,7 @@ Usage
                                        [--class-grouping {standard,hydrate,custom}]
                                        [--eval {holdout,nested}]
                                        [--cv-group {instance_id,well_id}] [--no-normalization]
-                                       [--allow-overlap] [--top-n N] [--depths 2,3,4,5,6]
+                                       [--allow-overlap] [--top-n N] [--depths 2,3,4,5,6,7,8,9,10,11,12]
 
 ``--model`` selects whose SHAP ranking to distill, not the tree itself; it is
 therefore one of ``rf`` / ``xgb``, and ``--model dt`` skips this stage, that
@@ -221,8 +221,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--depths",
-        default="2,3,4,5,6",
-        help="comma-separated tree depths to sweep (default: 2,3,4,5,6)",
+        default="2,3,4,5,6,7,8,9,10,11,12",
+        help="comma-separated tree depths to sweep (default: 2,3,4,5,6,7,8,9,10,11,12)",
     )
     args = parser.parse_args()
     skip_if_white_box(args.model, "distilling a compact tree")

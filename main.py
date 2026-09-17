@@ -14,7 +14,7 @@ Usage
                    [--cv-group {instance_id,well_id}] [--no-normalization]
                    [--allow-overlap] [--keep-extreme-values] [--n-jobs N]
                    [--max-instances N] [--rebuild-features] [--verbose]
-                   [--skip-permutation] [--top-n N] [--depths 2,3,4,5,6]
+                   [--skip-permutation] [--top-n N] [--depths 2,3,4,5,6,7,8,9,10,11,12]
 
 ``--class-grouping`` reaches the scoring stages (3 and 5) only: features and
 the ensemble are always built on the full class set.
@@ -82,8 +82,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--depths",
-        default="2,3,4,5,6",
-        help="tree depths swept in stage 5 (default: 2,3,4,5,6)",
+        type=str,
+        default="2,3,4,5,6,7,8,9,10,11,12",
+        help="tree depths swept in stage 5 (default: 2,3,4,5,6,7,8,9,10,11,12)",
     )
     args = parser.parse_args()
 
