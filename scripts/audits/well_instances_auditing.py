@@ -29,7 +29,7 @@ from pathlib import Path
 import pandas as pd
 
 # Update this path to the actual dataset location
-DATASET_PATH = Path.joinpath(Path(__file__).parent, "..", "..", "3W", "dataset")
+DATASET_PATH = Path.joinpath(Path(__file__).parent, "..", "..", "..", "3W", "dataset")
 
 # By default, all well IDs in the dataset, i.e., 1-42 except 17 and 18, are considered available.
 ALL_IDS: set[int] = set(range(1, 42)) - {17, 18}
@@ -118,7 +118,7 @@ def run_parser(description: str) -> argparse.ArgumentParser:
         "--dataset-path",
         type=Path,
         default=DATASET_PATH,
-        help="Path to the 3W dataset (default: scripts/../../3W/dataset).",
+        help="Path to the 3W dataset (default: scripts/audits/../../3W/dataset).",
     )
     parser.add_argument(
         "--output-file",
