@@ -174,17 +174,18 @@ HYDRATE_CLASS_GROUPING: dict[int, str] = {
     8: "Hydrate",
     9: "Hydrate",
 }
+# Example of a custom grouping that merges faults 1-7 into a single "Other" group.
 CUSTOM_CLASS_GROUPING: dict[int, str] = {
-    0: "",
-    1: "",
-    2: "",
-    3: "",
-    4: "",
-    5: "",
-    6: "",
-    7: "",
-    8: "",
-    9: "",
+    0: "Other",
+    1: "Other",
+    2: "Other",
+    3: "Other",
+    4: "Other",
+    5: "Other",
+    6: "Other",
+    7: "Other",
+    8: "Hydrate",
+    9: "Hydrate",
 }
 
 # -- Sensors ------------------------------------------------------------------
@@ -296,10 +297,36 @@ CV_SPLITS = 2  # GroupKFold folds
 N_SPLITS_CV = max(2, CV_SPLITS)  # GroupKFold folds (hyperparameter search)
 N_ITER_SEARCH = 5  # RandomizedSearchCV iterations
 
-EVAL_MODES = ("holdout", "nested")
-EVAL_MODE = "holdout"  # default evaluation protocol
+EVAL_MODES = ("holdout", "nested", "leave-one-out")
+# Default protocol per CV grouping. A single seeded holdout of 20 % of the
+# groups is fine with a thousand instances, but with 33 wells it is one draw
+# of a lopsided lottery: the 8 wells held out for prediction/well_id carry
+# 52 % of the windows and 68 % of normal operation (see
+# results/reports/2026-09-17_dt_from_xgb_cv_and_class_grouping.md). Leaving
+# one well out at a time instead gives a score per well and never lets one
+# draw decide, so it is the default whenever the groups are wells.
+EVAL_MODE_DEFAULTS = {"instance_id": "holdout", "well_id": "leave-one-out"}
 TEST_SIZE = 0.2  # group fraction held out for testing (holdout evaluation)
 N_SPLITS_OUTER = 5  # outer GroupKFold folds (nested evaluation)
+
+
+def default_eval_mode(cv_group: str) -> str:
+    """Evaluation protocol a run falls back to when ``--eval`` is not given.
+
+    Parameters
+    ----------
+    cv_group : str
+        The run's grouping column, ``"instance_id"`` or ``"well_id"``.
+
+    Returns
+    -------
+    str
+        ``"holdout"`` for instance grouping, ``"leave-one-out"`` for well
+        grouping (see ``EVAL_MODE_DEFAULTS``).
+    """
+    return EVAL_MODE_DEFAULTS[cv_group]
+
+
 N_JOBS = max(
     1,
     min(6, os.cpu_count() - 2),  # parallel workers (keep below core count to preserve RAM)
@@ -333,16 +360,19 @@ XGB_PARAM_GRID = {
 
 TOP_N_FEATURES = 15  # features shown in importance plots / rankings
 
-# Canvas of an exported tree figure (see ``interpretation.export_tree``). A
-# tree is drawn one leaf per column and one level per row, so its width
-# follows the *leaf count* rather than the depth: real trees are nowhere near
-# full (the depth-12 tree of a `--model dt` run has 171 leaves, not 4096), and
-# sizing by depth would ask for a canvas thousands of times too wide. The
-# pixel cap keeps a large tree within what matplotlib can rasterize (it
-# refuses past 2**16 px a side) by lowering the resolution rather than by
-# giving up on the figure.
-TREE_FIGURE_LEAF_WIDTH = 1.5  # inches of width per leaf
-TREE_FIGURE_LEVEL_HEIGHT = 2.5  # inches of height per level
+# Canvas of an exported tree figure (see ``interpretation.export_tree``). The
+# canvas is sized from the tree itself: the nodes are drawn once on a probe
+# figure, the widest and tallest node box are measured, and the figure is
+# then made exactly as wide and tall as it takes for two neighbouring nodes
+# — the closest pair on any level — to sit ``TREE_FIGURE_NODE_GAP`` apart, so
+# no two boxes overlap however deep the tree gets. Real trees are nowhere near
+# full (the depth-12 tree of a `--model dt` run has 171 leaves, not 4096), so
+# the width follows the leaf count, not the depth. The pixel cap keeps a large
+# tree within what matplotlib can rasterize (it refuses past 2**16 px a side)
+# by lowering the resolution rather than by giving up on the figure; when it
+# bites, a vector PDF is written next to the PNG so nothing is lost.
+TREE_FIGURE_NODE_GAP = 0.4  # inches of clear space between neighbouring node boxes
+TREE_FIGURE_MIN_WIDTH = 14.0  # inches; keeps a tiny tree's title legible
 TREE_FIGURE_DPI = 150
 TREE_FIGURE_MAX_PIXELS = 60_000
 SHAP_SAMPLE = 5_000  # windows sampled for SHAP

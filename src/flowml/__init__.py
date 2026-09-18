@@ -16,4 +16,18 @@ interpretation
     Feature-importance rankings (MDI, permutation, XGBoost gain, SHAP).
 visualization
     Raw-data plots: per-fault instance histories.
+
+Every figure this package draws is written to a file; nothing is ever shown
+interactively. The matplotlib backend is therefore pinned to Agg here, once,
+before any submodule imports ``pyplot``. Without it matplotlib picks an
+interactive backend when a display is present, and a large canvas — the
+depth-12 trees of the stage-5 sweep need tens of thousands of pixels a side
+(see ``interpretation.tree_canvas_size``) — fails with ``X Error: BadAlloc``
+when the X server cannot allocate the pixmap. Agg renders the same figure in
+process memory instead. Callers that do want another backend can still set
+one after importing ``flowml``.
 """
+
+import matplotlib
+
+matplotlib.use("Agg")

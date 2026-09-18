@@ -1,0 +1,85 @@
+Split composition audit — 2026-09-17 15:53:06
+task prediction | features raw_overlap | class grouping standard
+
+====================================================================================================
+CV grouping: well_id | evaluation: leave-one-out
+  82,115 windows | 33 groups | classes: 0 Normal, 1 Abrupt BSW Increase, 2 Spurious DHSV Closure, 5 Rapid Productivity Loss, 6 Quick PCK Restriction, 7 PCK Scaling, 8 Hydrate in Production Line, 9 Hydrate in Service Line
+  33 outer folds; held-out part of each:
+    fold   1/33: group 2: 24,429 windows (0 Normal 24,166 · 1 Abrupt BSW Increase 32 · 2 Spurious DHSV Closure 26 · 6 Quick PCK Restriction 205)
+    fold   2/33: group 6: 14,200 windows (0 Normal 13,421 · 1 Abrupt BSW Increase 658 · 7 PCK Scaling 121)
+    fold   3/33: group 1: 11,573 windows (0 Normal 11,053 · 1 Abrupt BSW Increase 294 · 7 PCK Scaling 226)
+    fold   4/33: group 5: 6,492 windows (0 Normal 6,492)
+    fold   5/33: group 41: 6,445 windows (9 Hydrate in Service Line 6,445)
+    fold   6/33: group 3: 3,186 windows (0 Normal 3,078 · 2 Spurious DHSV Closure 108)
+    fold   7/33: group 22: 2,873 windows (7 PCK Scaling 2,873)
+    fold   8/33: group 19: 2,240 windows (0 Normal 930 · 8 Hydrate in Production Line 1,310)
+    fold   9/33: group 24: 2,149 windows (7 PCK Scaling 2,149)
+    fold  10/33: group 35: 1,730 windows (9 Hydrate in Service Line 1,730)
+    fold  11/33: group 38: 803 windows (9 Hydrate in Service Line 803)
+    fold  12/33: group 4: 601 windows (0 Normal 563 · 6 Quick PCK Restriction 38)
+    fold  13/33: group 25: 572 windows (8 Hydrate in Production Line 572)
+    fold  14/33: group 37: 438 windows (9 Hydrate in Service Line 438)
+    fold  15/33: group 16: 401 windows (5 Rapid Productivity Loss 28 · 9 Hydrate in Service Line 373)
+    fold  16/33: group 39: 393 windows (9 Hydrate in Service Line 393)
+    fold  17/33: group 29: 382 windows (8 Hydrate in Production Line 382)
+    fold  18/33: group 20: 366 windows (5 Rapid Productivity Loss 341 · 9 Hydrate in Service Line 25)
+    fold  19/33: group 42: 333 windows (9 Hydrate in Service Line 333)
+    fold  20/33: group 14: 333 windows (9 Hydrate in Service Line 333)
+    fold  21/33: group 27: 328 windows (8 Hydrate in Production Line 328)
+    fold  22/33: group 21: 296 windows (7 PCK Scaling 296)
+    fold  23/33: group 11: 296 windows (2 Spurious DHSV Closure 296)
+    fold  24/33: group 28: 292 windows (8 Hydrate in Production Line 292)
+    fold  25/33: group 32: 242 windows (8 Hydrate in Production Line 242)
+    fold  26/33: group 30: 209 windows (8 Hydrate in Production Line 209)
+    fold  27/33: group 40: 119 windows (9 Hydrate in Service Line 119)
+    fold  28/33: group 36: 117 windows (9 Hydrate in Service Line 117)
+    fold  29/33: group 7: 94 windows (0 Normal 94)
+    fold  30/33: group 12: 75 windows (2 Spurious DHSV Closure 75)
+    fold  31/33: group 15: 59 windows (9 Hydrate in Service Line 59)
+    fold  32/33: group 13: 25 windows (2 Spurious DHSV Closure 25)
+    fold  33/33: group 9: 24 windows (2 Spurious DHSV Closure 24)
+
+  Windows per well and side (largest first):
+    held out (fold 1)    well   2:   24,429
+    train (fold 1)       well   6:   14,200
+    train (fold 1)       well   1:   11,573
+    train (fold 1)       well   5:    6,492
+    train (fold 1)       well  41:    6,445
+    train (fold 1)       well   3:    3,186
+    train (fold 1)       well  22:    2,873
+    train (fold 1)       well  19:    2,240
+    train (fold 1)       well  24:    2,149
+    train (fold 1)       well  35:    1,730
+    train (fold 1)       well  38:      803
+    train (fold 1)       well   4:      601
+    train (fold 1)       well  25:      572
+    train (fold 1)       well  37:      438
+    train (fold 1)       well  16:      401
+    train (fold 1)       well  39:      393
+    train (fold 1)       well  29:      382
+    train (fold 1)       well  20:      366
+    train (fold 1)       well  42:      333
+    train (fold 1)       well  14:      333
+    train (fold 1)       well  27:      328
+    train (fold 1)       well  11:      296
+    train (fold 1)       well  21:      296
+    train (fold 1)       well  28:      292
+    train (fold 1)       well  32:      242
+    train (fold 1)       well  30:      209
+    train (fold 1)       well  40:      119
+    train (fold 1)       well  36:      117
+    train (fold 1)       well   7:       94
+    train (fold 1)       well  12:       75
+    train (fold 1)       well  15:       59
+    train (fold 1)       well  13:       25
+    train (fold 1)       well   9:       24
+
+  Normal-operation windows per well (all sides):
+    well   1:   11,053 ( 18.5% of normal) — train (fold 1)
+    well   2:   24,166 ( 40.4% of normal) — held out (fold 1)
+    well   3:    3,078 (  5.1% of normal) — train (fold 1)
+    well   4:      563 (  0.9% of normal) — train (fold 1)
+    well   5:    6,492 ( 10.9% of normal) — train (fold 1)
+    well   6:   13,421 ( 22.4% of normal) — train (fold 1)
+    well   7:       94 (  0.2% of normal) — train (fold 1)
+    well  19:      930 (  1.6% of normal) — train (fold 1)

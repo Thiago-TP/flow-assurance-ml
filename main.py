@@ -10,14 +10,22 @@ already interpretable, and stage 2 exports its rules and figure itself.
 Usage
 -----
     uv run main.py [--model {rf,xgb,dt}] [--task {prediction,detection}]
-                   [--class-grouping {standard,hydrate,custom}] [--eval {holdout,nested}]
+                   [--class-grouping {standard,hydrate,custom}]
+                   [--eval {holdout,nested,leave-one-out}]
                    [--cv-group {instance_id,well_id}] [--no-normalization]
                    [--allow-overlap] [--keep-extreme-values] [--n-jobs N]
                    [--max-instances N] [--rebuild-features] [--verbose]
                    [--skip-permutation] [--top-n N] [--depths 2,3,4,5,6,7,8,9,10,11,12]
 
-``--class-grouping`` reaches the scoring stages (3 and 5) only: features and
-the ensemble are always built on the full class set.
+``--class-grouping`` reaches every stage but feature building, which the
+grouping cannot change: stages 2 and 4 train and rank on the grouped labels,
+stages 3 and 5 score in them. With a non-standard grouping the chain is run
+twice — once on the dataset's own classes, once on the groups — because the
+comparisons that make a grouping worth choosing (``collapse`` vs ``native``
+in stages 3 and 5) need both runs, and stage 5 distils each strategy from the
+ranking of the ensemble trained on the same labels. ``--eval`` left unset
+defaults to ``holdout`` with instance grouping and to ``leave-one-out`` with
+well grouping, and the resolved value is passed to every stage.
 
 Examples
 --------
@@ -117,9 +125,22 @@ def main() -> None:
             stage1_args += ["--max-instances", str(args.max_instances)]
         run_stage("01_build_features.py", stage1_args)
 
+    standard = [*modeled, "--class-grouping", "standard"]
     grouped = [*modeled, "--class-grouping", args.class_grouping]
+    # With a grouping, the training stages run once per label set: the
+    # comparisons of stages 3 and 5 (collapse vs native) need the standard run
+    # as well as the grouped one, and stage 5 distils each strategy from the
+    # ranking of the ensemble trained on the same labels it is.
+    label_sets = [standard] if args.class_grouping == "standard" else [standard, grouped]
+    if len(label_sets) > 1:
+        print(
+            f"\n--class-grouping {args.class_grouping}: the training stages run twice, "
+            "once on the dataset's own classes and once on the groups, so the scoring "
+            "stages can compare collapsing against native training."
+        )
 
-    run_stage("02_train_val_test.py", modeled)
+    for label_set in label_sets:
+        run_stage("02_train_val_test.py", label_set)
     run_stage("03_evaluate.py", grouped)
 
     if args.model in WHITE_BOX_MODELS:
@@ -131,10 +152,11 @@ def main() -> None:
             "(stage 2 exported its rules and figure)."
         )
     else:
-        stage4_args = list(modeled)
-        if args.skip_permutation:
-            stage4_args.append("--skip-permutation")
-        run_stage("04_interpret.py", stage4_args)
+        for label_set in label_sets:
+            stage4_args = list(label_set)
+            if args.skip_permutation:
+                stage4_args.append("--skip-permutation")
+            run_stage("04_interpret.py", stage4_args)
 
         run_stage(
             "05_decision_tree.py",

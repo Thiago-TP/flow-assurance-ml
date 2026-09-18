@@ -6,18 +6,37 @@ from flowml.config import (
     CLASS_GROUPINGS,
     CV_GROUPING,
     CV_GROUPINGS,
-    EVAL_MODE,
+    EVAL_MODE_DEFAULTS,
     EVAL_MODES,
     EXTREME_VALUE_LIMIT,
     N_JOBS,
     N_SPLITS_OUTER,
     TEMPERATURE_LIMITS,
     TEST_SIZE,
+    default_eval_mode,
     extreme_suffix,
     norm_suffix,
     overlap_suffix,
 )
 from flowml.train_val_test import MODEL_TYPES, TASKS, WHITE_BOX_MODELS
+
+
+class RunParser(argparse.ArgumentParser):
+    """Argument parser whose ``--eval`` default follows ``--cv-group``.
+
+    The evaluation protocol that makes sense depends on what the groups are
+    (see ``config.EVAL_MODE_DEFAULTS``), so ``--eval`` is parsed with no
+    default and filled in here once ``--cv-group`` is known. Scripts keep
+    calling ``parse_args()`` as usual.
+    """
+
+    def parse_args(self, args=None, namespace=None) -> argparse.Namespace:  # type: ignore[override]
+        parsed = super().parse_args(args, namespace)
+        if getattr(parsed, "eval", None) is None and getattr(parsed, "cv_group", None) in (
+            EVAL_MODE_DEFAULTS
+        ):
+            parsed.eval = default_eval_mode(parsed.cv_group)
+        return parsed
 
 
 def run_parser(description: str, with_model: bool = True) -> argparse.ArgumentParser:
@@ -34,8 +53,10 @@ def run_parser(description: str, with_model: bool = True) -> argparse.ArgumentPa
     -------
     argparse.ArgumentParser
         Parser with ``--verbose`` and, optionally, ``--model`` / ``--task``.
+        With a model, ``--eval`` left unset resolves to the default of the
+        chosen ``--cv-group`` at parse time (``RunParser``).
     """
-    parser = argparse.ArgumentParser(description=description)
+    parser = RunParser(description=description)
     parser.add_argument(
         "--verbose",
         action="store_true",
@@ -113,22 +134,29 @@ def run_parser(description: str, with_model: bool = True) -> argparse.ArgumentPa
         parser.add_argument(
             "--eval",
             choices=EVAL_MODES,
-            default=EVAL_MODE,
+            default=None,
             help=(
                 f"evaluation protocol: holdout = grouped test split (fraction {TEST_SIZE} "
                 f"of the groups) scored once; nested = grouped nested CV, unbiased but "
-                f"~{N_SPLITS_OUTER}x slower (default: holdout)"
+                f"~{N_SPLITS_OUTER}x slower; leave-one-out = nested CV with one group "
+                "held out per outer fold, a score per group at about as many searches "
+                "as there are groups (default: "
+                + ", ".join(f"{mode} for {group}" for group, mode in EVAL_MODE_DEFAULTS.items())
+                + ")"
             ),
         )
     return parser
 
 
 def add_class_grouping_arg(parser: argparse.ArgumentParser) -> None:
-    """Add the ``--class-grouping`` switch to a parser that scores predictions.
+    """Add the ``--class-grouping`` switch to a parser that reads labels.
 
-    Only the stages that read labels back (evaluation, decision tree) accept
-    it; feature building and ensemble training always work on the full set of
-    classes.
+    Every stage from training onwards accepts it; only feature building does
+    not, since the grouping changes labels and never features. In the
+    training stages it selects the label set the model is *fit* on, and
+    grouped runs get their own artifact tag so they coexist with the standard
+    ones; in the scoring stages it additionally selects the label set
+    predictions are judged in.
 
     Parameters
     ----------
@@ -140,7 +168,7 @@ def add_class_grouping_arg(parser: argparse.ArgumentParser) -> None:
         choices=CLASS_GROUPINGS,
         default="standard",
         help=(
-            "collapse classes before scoring: hydrate = Normal / Other Problem / Hydrate; "
+            "label set to model and score: hydrate = Normal / Other Problem / Hydrate; "
             "custom = user-defined CUSTOM_CLASS_GROUPING from config.py (default: standard)"
         ),
     )
@@ -177,19 +205,24 @@ def run_tag(
     task: str,
     normalized: bool = True,
     cv_group: str = CV_GROUPING,
-    eval_mode: str = EVAL_MODE,
+    eval_mode: str = "holdout",
     allow_overlap: bool = False,
     keep_extreme_values: bool = False,
+    class_grouping: str = "standard",
 ) -> str:
     """Compose the artifact-name tag identifying one training run.
 
     The tag covers every switch that changes what stage 2 produces: model,
-    task, normalization, overlap and extreme-value rules, CV grouping, and
-    evaluation protocol. The defaults (overlapping instances dropped, extreme
-    readings masked, instance grouping, holdout evaluation) add no suffix;
+    task, normalization, overlap and extreme-value rules, CV grouping,
+    evaluation protocol, and the label set the model is fit on. The defaults
+    (overlapping instances dropped, extreme readings masked, instance
+    grouping, holdout evaluation, the dataset's own classes) add no suffix;
     keeping overlapping instances appends ``_overlap``, keeping extreme
-    readings ``_extremes``, well-level grouping ``_wellcv`` and nested
-    evaluation ``_nested`` so all runs coexist.
+    readings ``_extremes``, well-level grouping ``_wellcv``, nested
+    evaluation ``_nested``, leave-one-out evaluation ``_loo`` and a class
+    grouping its own name, so all runs coexist. The protocol suffix is
+    written even when the protocol is the default of the grouping, so a
+    well-grouped run reads ``_wellcv_loo``.
 
     Parameters
     ----------
@@ -202,18 +235,22 @@ def run_tag(
     cv_group : str
         ``"instance_id"`` or ``"well_id"``.
     eval_mode : str
-        ``"holdout"`` or ``"nested"``.
+        ``"holdout"``, ``"nested"`` or ``"leave-one-out"``.
     allow_overlap : bool
         Whether the features keep the real instances overlapping another of
         the same well.
     keep_extreme_values : bool
         Whether the features keep readings beyond ``EXTREME_VALUE_LIMIT``.
+    class_grouping : str
+        The label set the model is fit on: ``"standard"``, ``"hydrate"`` or
+        ``"custom"``.
 
     Returns
     -------
     str
-        E.g. ``"xgb_prediction_zscore"`` or
-        ``"xgb_prediction_zscore_overlap_extremes_wellcv_nested"``.
+        E.g. ``"xgb_prediction_zscore"``, ``"xgb_prediction_raw_overlap_wellcv_loo"``,
+        ``"xgb_prediction_raw_overlap_hydrate"`` or
+        ``"xgb_prediction_zscore_overlap_extremes_wellcv_nested_custom"``.
     """
     tag = (
         f"{model}_{task}_{norm_suffix(normalized)}"
@@ -221,6 +258,42 @@ def run_tag(
     )
     if cv_group == "well_id":
         tag += "_wellcv"
-    if eval_mode == "nested":
-        tag += "_nested"
+    tag += eval_suffix(eval_mode) + grouping_suffix(class_grouping)
     return tag
+
+
+def grouping_suffix(class_grouping: str) -> str:
+    """Artifact-name suffix of a class grouping.
+
+    Parameters
+    ----------
+    class_grouping : str
+        ``"standard"``, ``"hydrate"`` or ``"custom"``.
+
+    Returns
+    -------
+    str
+        ``""`` for the dataset's own classes, ``"_<name>"`` otherwise.
+    """
+    if class_grouping not in CLASS_GROUPINGS:
+        raise ValueError(f"Unknown class grouping: {class_grouping!r} (expected {CLASS_GROUPINGS})")
+    return "" if class_grouping == "standard" else f"_{class_grouping}"
+
+
+def eval_suffix(eval_mode: str) -> str:
+    """Artifact-name suffix of an evaluation protocol.
+
+    Parameters
+    ----------
+    eval_mode : str
+        ``"holdout"``, ``"nested"`` or ``"leave-one-out"``.
+
+    Returns
+    -------
+    str
+        ``""`` for holdout, ``"_nested"`` for nested, ``"_loo"`` for
+        leave-one-out. Shared by ``run_tag`` and the stage-5 tree tag.
+    """
+    if eval_mode not in EVAL_MODES:
+        raise ValueError(f"Unknown eval mode: {eval_mode!r} (expected {EVAL_MODES})")
+    return {"holdout": "", "nested": "_nested", "leave-one-out": "_loo"}[eval_mode]

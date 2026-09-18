@@ -7,12 +7,23 @@ on the top SHAP features.
 ``--model dt`` skips this stage: a single decision tree is already its own
 explanation, exported as rules and a figure by stage 2.
 
+``--class-grouping`` selects which stage-2 run to read, so a run trained on
+grouped labels gets a ranking of its own: what drives *that* question, rather
+than the dataset's own classes. Stage 5 pairs each ranking with the tree
+strategy it belongs to.
+
 Usage
 -----
     uv run scripts/04_interpret.py [--model {rf,xgb}] [--task {prediction,detection}]
-                                   [--eval {holdout,nested}] [--cv-group {instance_id,well_id}]
+                                   [--class-grouping {standard,hydrate,custom}]
+                                   [--eval {holdout,nested,leave-one-out}]
+                                   [--cv-group {instance_id,well_id}]
                                    [--skip-permutation] [--no-normalization] [--allow-overlap]
                                    [--n-jobs N]
+
+``--eval`` only selects which stage-2 run's model to read (its tag); under
+``nested`` and ``leave-one-out`` that is the deployment model of the final
+search on all data.
 
 Outputs (tag = <model>_<task>_<norm>, plus the suffixes of stage 2)
 ---------------------------------------
@@ -27,7 +38,7 @@ import sys
 
 import joblib
 
-from flowml.cli import run_parser, run_tag, skip_if_white_box
+from flowml.cli import add_class_grouping_arg, run_parser, run_tag, skip_if_white_box
 from flowml.config import FIGURES_DIR, METRICS_DIR, MODELS_DIR, TOP_N_FEATURES
 from flowml.interpretation import (
     mdi_importance,
@@ -43,6 +54,7 @@ from flowml.train_val_test import load_task_data
 def main() -> None:
     """Parse arguments, compute every applicable ranking, and save outputs."""
     parser = run_parser(__doc__.splitlines()[0])
+    add_class_grouping_arg(parser)
     parser.add_argument(
         "--skip-permutation",
         action="store_true",
@@ -59,6 +71,7 @@ def main() -> None:
         args.eval,
         args.allow_overlap,
         args.keep_extreme_values,
+        args.class_grouping,
     )
     cmap = "Blues_r" if args.model == "rf" else "Oranges_r"
 
@@ -67,7 +80,8 @@ def main() -> None:
         sys.exit(
             f"{model_path} not found. Train first:\n"
             f"  uv run scripts/02_train_val_test.py --model {args.model} "
-            f"--task {args.task}"
+            f"--task {args.task} --cv-group {args.cv_group} --eval {args.eval} "
+            f"--class-grouping {args.class_grouping}"
         )
     pipe = joblib.load(model_path)
     encoder = joblib.load(MODELS_DIR / f"{tag}_label_encoder.joblib")
@@ -75,7 +89,12 @@ def main() -> None:
 
     print(f"Interpretation — {tag}")
     data = load_task_data(
-        args.task, normalized, args.cv_group, args.allow_overlap, args.keep_extreme_values
+        args.task,
+        normalized,
+        args.cv_group,
+        args.allow_overlap,
+        args.keep_extreme_values,
+        args.class_grouping,
     )
     X_imputed = pipe.named_steps["imputer"].transform(data.X)
     rankings: dict[str, dict] = {}
@@ -132,6 +151,7 @@ def main() -> None:
 
     out = {
         "tag": tag,
+        "class_grouping": args.class_grouping,
         "top_shap_features": shap_series.head(TOP_N_FEATURES).index.tolist(),
         "rankings": rankings,
     }

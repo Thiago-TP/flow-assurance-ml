@@ -1,0 +1,64 @@
+Normalization leakage audit — 2026-09-17 17:53:47
+sensors: P-PDG, T-PDG, P-TPT, T-TPT, P-MON-CKP, T-JUS-CKP, P-JUS-CKGL, QGL
+  Class 0 Normal...
+  Class 1 Abrupt BSW Increase...
+  Class 2 Spurious DHSV Closure...
+  Class 3 Severe Slugging...
+  Class 4 Flow Instability...
+  Class 5 Rapid Productivity Loss...
+  Class 6 Quick PCK Restriction...
+  Class 7 PCK Scaling...
+  Class 8 Hydrate in Production Line...
+  Class 9 Hydrate in Service Line...
+
+1693 instances have a normal-operation period and a labelled fault period.
+
+std ratio = std over the whole recording (what stage 1 divides by) / std over the
+normal-operation samples alone (what a leak-free pipeline would divide by).
+1.0 means the fault period does not change the divisor; the further from 1, and the
+more it differs between classes, the more the normalization encodes the label.
+
+
+Per fault class — DRAWN instances (over all sensors and instances):
+                       measurements  median_std_ratio  p90_std_ratio  median_mean_shift  median_normal_share
+1 Abrupt BSW Increase            50            89.904        209.913              1.094                  0.1
+7 PCK Scaling                    50            59.878        173.145              1.367                  0.1
+
+Per fault class — SIMULATED instances (over all sensors and instances):
+                              measurements  median_std_ratio  p90_std_ratio  median_mean_shift  median_normal_share
+1 Abrupt BSW Increase                  570          1687.710      19842.580              1.081                0.074
+2 Spurious DHSV Closure                 75         25902.310     686593.491              2.507                0.125
+5 Rapid Productivity Loss             2154          2103.325      29349.944              3.249                0.017
+6 Quick PCK Restriction                860          2992.130      29883.185              3.143                0.067
+8 Hydrate in Production Line           352         56195.051    1111633.505              1.282                0.067
+9 Hydrate in Service Line             1048           815.164       8005.278              1.054                0.132
+
+Per fault class — WELL instances (over all sensors and instances):
+                              measurements  median_std_ratio  p90_std_ratio  median_mean_shift  median_normal_share
+0 Normal                              1977             1.037          1.405              0.155                0.832
+1 Abrupt BSW Increase                   16            10.012         44.573              0.500                0.709
+2 Spurious DHSV Closure                 79           372.350       2192.483              0.526                0.335
+5 Rapid Productivity Loss               62             4.614         38.799              0.757                0.096
+6 Quick PCK Restriction                 18             1.899         12.322              0.488                0.360
+7 PCK Scaling                          173             1.975          8.843              0.810                0.122
+8 Hydrate in Production Line            52            29.098        175.392              1.161                0.194
+9 Hydrate in Service Line              258             1.168          5.584              0.156                0.766
+
+Per sensor, median std ratio by fault class — real instances only:
+               0      1        2      5     6     7       8     9
+sensor                                                           
+P-JUS-CKGL  1.20   1.17     2.54  15.21   NaN  2.57  170.38  1.52
+P-MON-CKP   1.02  13.60    24.42   2.48  2.54  1.16   10.20  1.01
+P-PDG       1.12    NaN   501.37   2.05   NaN   NaN    5.29  1.19
+P-TPT       1.02  27.41   544.91   3.89  5.47  4.32   30.31  1.03
+QGL         0.91    NaN      NaN   6.97   NaN  1.27   13.45  1.56
+T-JUS-CKP   1.06   9.44    33.46   3.28  1.92  2.42     NaN  1.07
+T-PDG       0.98    NaN    18.19  22.82   NaN   NaN   48.98  1.27
+T-TPT       1.03   8.64  1535.17  10.78  1.14  2.14   72.38  1.37
+
+Real instances: the per-class median std ratio spans 1.04 to 372.35.
+Classes whose medians differ are classes whose normal-operation windows are divided
+by systematically different numbers — a signal present in every z-scored feature of
+the prediction task and absent from the raw ones. Simulated instances start from a
+steady state, so their normal period is nearly flat and their ratios are far larger
+still; they are reported separately above for that reason.

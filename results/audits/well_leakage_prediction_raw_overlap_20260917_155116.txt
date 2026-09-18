@@ -1,0 +1,56 @@
+Well leakage audit — 2026-09-17 15:51:16
+task prediction | features raw_overlap
+
+Source composition of the dataset (windows per class and instance source):
+source_type                   DRAWN  SIMULATED   WELL  all sources
+0 Normal                          0          0  59797        59797
+1 Abrupt BSW Increase           565       4560    984         6109
+2 Spurious DHSV Closure           0        384    554          938
+5 Rapid Productivity Loss         0       1317    369         1686
+6 Quick PCK Restriction           0       2576    243         2819
+7 PCK Scaling                  1777          0   5665         7442
+8 Hydrate in Production Line      0        972   3335         4307
+9 Hydrate in Service Line         0       5918  11168        17086
+
+  windows by source:
+    WELL         82,115 (82.0%)
+    SIMULATED    15,727 (15.7%)
+    DRAWN         2,342 (2.3%)
+
+Instance-grouped holdout split (the one stages 2 and 5 use):
+  Composition of the holdout split:
+                                                    train+val                       test
+    windows                                    81,180 (81.0%)             19,004 (19.0%)
+    groups                                                885                        222
+    class                                 n  of class   prior        n  of class   prior
+    0 Normal                         47,672     79.7%   58.7%   12,125     20.3%   63.8%
+    1 Abrupt BSW Increase             4,310     70.6%    5.3%    1,799     29.4%    9.5%
+    2 Spurious DHSV Closure             831     88.6%    1.0%      107     11.4%    0.6%
+    5 Rapid Productivity Loss         1,388     82.3%    1.7%      298     17.7%    1.6%
+    6 Quick PCK Restriction           2,236     79.3%    2.8%      583     20.7%    3.1%
+    7 PCK Scaling                     6,685     89.8%    8.2%      757     10.2%    4.0%
+    8 Hydrate in Production Line      3,236     75.1%    4.0%    1,071     24.9%    5.6%
+    9 Hydrate in Service Line        14,822     86.7%   18.3%    2,264     13.3%   11.9%
+
+  test wells: 20 | also in train+val: 17 | test-only: ['13', '28', '32']
+  test windows whose well is also in train+val: 18,445/19,004 (97.1%)
+
+  per class, share of test windows whose well is also seen in training:
+      0 Normal                           100.0%  (n=12,125)
+      1 Abrupt BSW Increase              100.0%  (n=1,799)
+      2 Spurious DHSV Closure             76.6%  (n=107)
+      5 Rapid Productivity Loss          100.0%  (n=298)
+      6 Quick PCK Restriction            100.0%  (n=583)
+      7 PCK Scaling                      100.0%  (n=757)
+      8 Hydrate in Production Line        50.1%  (n=1,071)
+      9 Hydrate in Service Line          100.0%  (n=2,264)
+
+Well concentration per class (real instances only):
+    0 Normal                            8 wells | top well   2 holds  40% | top-2  63%
+    1 Abrupt BSW Increase               3 wells | top well   6 holds  67% | top-2  97%
+    2 Spurious DHSV Closure             6 wells | top well  11 holds  53% | top-2  73%
+    5 Rapid Productivity Loss           2 wells | top well  20 holds  92% | top-2 100%
+    6 Quick PCK Restriction             2 wells | top well   2 holds  84% | top-2 100%
+    7 PCK Scaling                       5 wells | top well  22 holds  51% | top-2  89%
+    8 Hydrate in Production Line        7 wells | top well  19 holds  39% | top-2  56%
+    9 Hydrate in Service Line          12 wells | top well  41 holds  58% | top-2  73%

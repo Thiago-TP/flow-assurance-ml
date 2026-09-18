@@ -17,12 +17,12 @@ Usage
     uv run scripts/00_visualize_dataset.py [--raw-dir PATH] [--verbose]
     uv run scripts/00_visualize_dataset.py --well 1 13 --skip-faults
 
-Outputs
--------
-    results/figures/instances_per_fault/fault_<n>_real_instances.pdf
-    results/figures/fault_signatures/<source>/fault_<n>_<source>_signatures.pdf
-    results/figures/well_histories/faults_per_well.pdf
-    results/figures/well_histories/well_<id>_history.pdf
+Outputs (under ``VISUALIZATION_DIR``, ``plots/`` by default)
+-------------------------------------------------------------
+    plots/instances_per_fault/fault_<n>_real_instances.pdf
+    plots/fault_signatures/<source>/fault_<n>_<source>_signatures.pdf
+    plots/well_histories/faults_per_well.pdf
+    plots/well_histories/well_<id>_history.pdf
 """
 
 import argparse

@@ -2,6 +2,8 @@
 __pycache__/
 *.pyc
 data/
-results/
+results/*
+!results/audits/
+!results/reports/
 plots/
 .claude/

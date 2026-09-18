@@ -88,8 +88,8 @@ under a unique tag:
 | ---------------------- | ------------------------------------- | --------------------- | ------ |
 | `--model`            | `rf`, `xgb`, `dt`               | `xgb`               | 2-5    |
 | `--task`             | `prediction`, `detection`         | `prediction`        | 2-5    |
-| `--class-grouping`   | `standard`, `hydrate`, `custom` | `standard`          | 3, 5   |
-| `--eval`             | `holdout`, `nested`               | `holdout`           | 2-5    |
+| `--class-grouping`   | `standard`, `hydrate`, `custom` | `standard`          | 2-5    |
+| `--eval`             | `holdout`, `nested`, `leave-one-out` | `holdout` with `instance_id`, `leave-one-out` with `well_id` | 2-5 |
 | `--cv-group`         | `instance_id`, `well_id`          | `instance_id`       | 2-5    |
 | `--no-normalization` | flag                                  | off                   | 1-5    |
 | `--allow-overlap`    | flag                                  | off                   | 1-5    |
@@ -110,13 +110,27 @@ distil that ranking into a compact tree — and this model is that tree already.
 > [!NOTE]
 > The tree fit here is the *best* tree for the task, not a compact one: the
 > search is free to pick `max_depth = None`, and on prediction it picks depth
-> 12 with 171 leaves — a poster of a figure (30,000 × 3,900 px) rather than
-> something to read at a glance. It is still drawn in full: the canvas is
-> sized per *leaf* (`TREE_FIGURE_LEAF_WIDTH`) and per level
-> (`TREE_FIGURE_LEVEL_HEIGHT`), and a tree large enough to exceed what
-> matplotlib can rasterize loses resolution rather than the figure. For a
-> deliberately small tree, distil an ensemble with stage 5, which sweeps
-> shallow depths over the top SHAP features only.
+> 12 with 171 leaves — a poster of a figure rather than something to read at
+> a glance. It is still drawn in full and without overlaps: the tree is drawn
+> once on a probe canvas, its widest and tallest node box are measured, and
+> the figure is then made exactly as large as it takes for the closest pair
+> of nodes on any level to sit `TREE_FIGURE_NODE_GAP` apart
+> (`interpretation.tree_canvas_size`). A tree large enough to exceed what
+> matplotlib can rasterize (`TREE_FIGURE_MAX_PIXELS`) loses PNG resolution
+> rather than the figure, and gets a vector `<tag>_tree.pdf` beside the PNG.
+> For a deliberately small tree, distil an ensemble with stage 5, which
+> sweeps depths 2 to 12 over the top SHAP features only.
+
+**Every exported tree is pruned first.** A tree fit for purity keeps
+splitting as long as a split lowers impurity, even when both sides then
+predict the same class — those splits read as decisions the model makes and
+are not. `interpretation.prune_redundant_splits` collapses every split whose
+whole subtree agrees on one class, bottom up, so the published depth and leaf
+count describe what the model actually decides. Predictions are provably
+unchanged (`tree_.value` at a node is the class distribution of the samples
+reaching it, and summing distributions that share an argmax keeps it; the one
+node where an exact tie could flip the answer is left alone), so no metric
+moves and the saved `.joblib` is the pruned model itself.
 
 `--no-normalization` skips the per-instance z-score in stage 1 and makes every
 stage read and write the `_raw` artifacts instead of `_zscore`, so both
@@ -161,16 +175,47 @@ reads and writes `_extremes` artifacts.
 > and nine whose `P-TPT` is negative throughout. Wells 31 and 34 lose every
 > instance they had, but no fault class loses well coverage.
 
-`--eval` selects how the tuned model is evaluated. `holdout` (default) splits
-a grouped test set (`TEST_SIZE` = 20 % of the groups, seeded) off **before**
-the hyperparameter search, runs the GroupKFold search on the remainder, and
+`--eval` selects how the tuned model is evaluated. `holdout` splits a grouped
+test set (`TEST_SIZE` = 20 % of the groups, seeded) off **before** the
+hyperparameter search, runs the GroupKFold search on the remainder, and
 scores the refit winner once on the untouched test set — so the reported
 metrics are never the scores the winner was selected on. `nested` runs a
 grouped nested CV instead: every outer fold selects its own hyperparameters
 with an inner search and predicts its held-out fold — unbiased and uses all
 data for evaluation, at roughly `N_SPLITS_OUTER` (= 5) times the cost; the
-saved model then comes from one final search on all data. Nested runs append
-`_nested` to their artifact tags.
+saved model then comes from one final search on all data. `leave-one-out` is
+the nested protocol with **one group per outer fold**: as many inner searches
+as there are groups, and a score for every group — with wells as groups, a
+score per well, which no single holdout of a handful of wells can give. Runs
+append `_nested` or `_loo` to their artifact tags.
+
+Left unset, `--eval` follows the grouping (`EVAL_MODE_DEFAULTS`): `holdout`
+with `instance_id`, `leave-one-out` with `well_id`. With a thousand instances
+a seeded 20 % holdout is a fair draw; with 33 wells it is one draw of a
+lopsided lottery — the 8 wells held out for prediction carry 52 % of the
+windows and 68 % of normal operation, so a training prior of 49 % Normal
+meets a test prior of 95 % Normal (see
+`results/reports/2026-09-17_dt_from_xgb_cv_and_class_grouping.md`). Leaving
+one well out at a time never lets one draw decide. The cost is real —
+33 searches for the well grouping, over a thousand with instances — and the
+log states the fit count before starting.
+
+Whatever the protocol, **every split prints its composition**: windows and
+groups per side and, per class, how much of the class each side holds and
+what share of the side it makes up (`train_val_test.split_composition`), and
+the outer folds log what they hold out. When the evaluation table has few
+groups — always with wells — stage 3 also scores every group on its own
+(`per_group` in the metrics JSON), so a well predicted entirely wrong shows
+even when the pooled number hides it.
+
+Stage 5 follows the same protocol as the ensemble: under `holdout` its depth
+sweep runs on train+val and the chosen tree is scored once on the same test
+set; under `nested` and `leave-one-out` every outer fold runs its own depth
+sweep on its training part and predicts its held-out part, the pooled
+predictions are scored (per group as well), and the exported tree is the
+winner of a final sweep on all data — the same way stage 2 saves the model of
+its final search. Tree and ensemble are thus always judged on identical
+held-out data.
 
 `--cv-group` selects what every grouped split keeps together: `instance_id`
 (one recording never splits across train/test) or `well_id` (no recording of a
@@ -194,9 +239,12 @@ this, Quick PCK Restriction being a single well. The hyperparameter-search
 folds and the nested outer folds get the same treatment, with one addition: a
 class carried by a single group is pinned to training in every fold and never
 validated on, the only way XGBoost can run at all. `--verbose` prints every
-move and every pinned group. Moving whole wells can shift the split
-noticeably: for prediction with `--cv-group well_id` the repaired test set
-holds 11 of 35 wells and 55 % of the windows.
+move and every pinned group. Legal is not balanced, though: a class present
+on both sides may still have 92 % of its windows on one of them, and holding
+out 20 % of the *wells* can hold out half the *windows* (the 8 test wells of
+prediction/well_id carry 52 % of them). That is what the composition table
+every split prints is for, and why well grouping defaults to
+`--eval leave-one-out`.
 
 ## Dataset visualization
 
@@ -206,7 +254,7 @@ Independent of the modeling pipeline, stage 0 plots the raw dataset itself as av
 uv run scripts/00_visualize_dataset.py          # add --verbose for per-instance progress
 ```
 
-Each family of plots gets its own directory under `results/figures/`:
+Each family of plots gets its own directory under `plots/` (`VISUALIZATION_DIR`):
 
 ```mermaid
 flowchart LR
@@ -276,7 +324,7 @@ adding an entry there is all it takes for stage 0 to pick a fault up.
 
 ## Class groupings
 
-`--class-grouping hydrate` collapses the classes onto the operational triage
+`--class-grouping hydrate` reduces the classes to the operational triage
 question: is the well heading for normal operation, a hydrate event, or some
 other flow-assurance problem? Faults 8 and 9 become **Hydrate**, every other
 fault becomes **Other Problem**, and transients follow their active
@@ -296,15 +344,47 @@ names, i.e. alphabetically:
 | 8            | Hydrate in Production Line | 0          | Hydrate       |
 | 9            | Hydrate in Service Line    | 0          | Hydrate       |
 
-> [!WARNING]
-> Grouping affects **scoring only**, features and the ensemble are always built on the full class set.
+The grouping reaches every stage but feature building, which it cannot
+change: **stage 2 fits the model on the grouped labels**, stage 4 ranks that
+model's features, and stages 3 and 5 score in the grouped label space. A
+grouped run carries its grouping in its artifact tag
+(`xgb_prediction_raw_overlap_hydrate`), so it sits beside the standard run
+instead of replacing it.
 
-Stage 5 then compares two ways of reaching the grouped labels, both scored against the same truth:
+> [!IMPORTANT]
+> Every split is built from the dataset's **own** classes whatever label set
+> is modeled (`TaskData.fine_y`), for two reasons: covering every fine class
+> covers every group of them, and a split that does not depend on the label
+> set is what lets a grouped run and a standard one be compared window for
+> window. So the two runs share their folds exactly, and the comparisons
+> below are like-for-like.
+
+Stages 3 and 5 therefore compare two ways of reaching the grouped labels, both
+scored against the same truth on the same held-out windows:
 
 | Strategy     | Trains on                                        | Answers                                                            |
 | ------------ | ------------------------------------------------ | ------------------------------------------------------------------ |
-| `collapse` | Full class set, predictions collapsed afterwards | How well does the existing tree already serve the triage question? |
-| `native`   | The grouped labels directly                      | What does spending the whole depth budget on this distinction buy? |
+| `collapse` | Full class set, predictions collapsed afterwards | How well does the existing model already serve the triage question? |
+| `native`   | The grouped labels directly                      | What does spending the whole capacity on this distinction buy?     |
+
+`collapse` reads the standard run's stored predictions, `native` the grouped
+run's, so **both runs must exist** for the comparison; stage 3 reports
+whichever it finds and names the command for the other. In stage 5 the
+pairing goes one step further: each strategy distils the SHAP ranking of the
+ensemble trained on *the same labels it is* — the standard run's for
+`collapse`, the grouped run's for `native` — so a native tree is no longer
+handed features chosen for a question it is not asked.
+
+The exported rules and drawing of each tree name the classes *that tree*
+predicts: the fine fault classes for `collapse` (its predictions are grouped
+afterwards, the tree itself is not), the groups for `native`.
+
+A full grouped exploration is therefore two chains — the standard one and the
+grouped one — which is what `main.py --class-grouping hydrate` runs:
+
+```bash
+uv run main.py --class-grouping hydrate --no-normalization --allow-overlap
+```
 
 > [!TIP]
 > You can use a custom grouping of your own by editing the `CUSTOM_CLASS_GROUPING` variable in [`src/flowml/config.py`](src/flowml/config.py) (every fault must get a non-empty group name). Then, to use it, set
@@ -320,9 +400,39 @@ flowchart LR
   T["02_train_val_test.py<br/>tag = model_task_norm"] --> M["results/models/<br/>tag.joblib · tag_label_encoder.joblib"]
   T --> O["results/metrics/<br/>tag_eval.parquet · tag_search.json · tag_cv_results.csv"]
   T -. "--model dt" .-> R["results/metrics/tag_rules.txt<br/>results/figures/tag_tree.png"]
-  O --> EV["03_evaluate.py"] --> EM["results/metrics/tag_metrics.json<br/>results/figures/tag_confusion_matrix.png"]
+  O --> EV["03_evaluate.py"] --> EM["results/metrics/tag_metrics.json<br/>results/figures/tag[_strategy]_confusion_matrix.png"]
   M --> IN["04_interpret.py"] --> IM["results/metrics/tag_importance.json<br/>results/figures/tag_{mdi|gain,permutation,shap}.png"]
   IM --> DT["05_decision_tree.py<br/>dtag = dt_task_norm_from_model"] --> DM["results/models/dtag.joblib<br/>results/metrics/dtag_{metrics.json,rules.txt,eval.parquet}<br/>results/figures/dtag_{tree,confusion_matrix}.png"]
+```
+
+The tag carries every switch that changes what a run produces, so all
+configurations coexist: `xgb_prediction_raw_overlap_wellcv_loo_hydrate` is
+XGBoost predicting faults from raw features with overlapping instances kept,
+grouped and evaluated by well, leave-one-well-out, and fit on the hydrate
+label set. With a class grouping, stages 3 and 5 write one `_metrics.json`
+holding both strategies and strategy-suffixed figures beside it.
+
+## Audits
+
+Alongside the numbered stages, `scripts/audits/` holds standalone scripts
+that inspect the dataset or the pipeline's splits without training anything.
+They take the pipeline's shared switches where those apply, print to the
+terminal and save a copy under `results/audits/`; the write-ups under
+`results/reports/` cite their numbers.
+
+| Script | Question it answers | Writes |
+| ------ | ------------------- | ------ |
+| `well_instances_auditing.py` | Which instances of a well overlap in time, and do the overlaps carry conflicting labels? | `well_instances_audit_<timestamp>.txt` |
+| `split_composition_auditing.py` | What does each split hold, class by class, under each CV grouping and protocol — and which wells carry normal operation at all? | `split_composition_<...>_<timestamp>.txt` |
+| `well_leakage_auditing.py` | How much of the instance-grouped test set comes from wells seen in training, per class; how do the real instances of each class concentrate in wells; how much of each class is synthetic? | `well_leakage_<...>_<timestamp>.txt` |
+| `sensor_distributions_auditing.py` | Where do each well's pressure and temperature readings sit, against the simulated and hand-drawn instances — and how much of each is frozen at zero, masked by default, or missing? | `sensor_distributions.pdf` (one page per sensor) + `sensor_distributions_<timestamp>.txt` |
+| `normalization_leakage_auditing.py` | Does per-instance z-scoring leak the coming fault into the normal-operation windows the prediction task learns from? | `normalization_leakage_<timestamp>.txt` |
+
+```bash
+uv run scripts/audits/split_composition_auditing.py --no-normalization --allow-overlap
+uv run scripts/audits/well_leakage_auditing.py --no-normalization --allow-overlap
+uv run scripts/audits/sensor_distributions_auditing.py          # reads the whole raw dataset; --max-instances 3 for a look
+uv run scripts/audits/normalization_leakage_auditing.py
 ```
 
 ## Layout
@@ -334,8 +444,8 @@ flowchart LR
 │   ├── config.py             paths · sensors · class maps · constants
 │   ├── preprocessing.py      loading · cleaning · z-score
 │   ├── features.py           windowing · 88 features · labeling
-│   ├── train_val_test.py     task datasets · pipelines · CV search · held-out evaluation
-│   ├── evaluation.py         metrics · confusion matrix
+│   ├── train_val_test.py     task datasets · pipelines · CV search · holdout / nested / leave-one-out evaluation · split composition
+│   ├── evaluation.py         metrics · per-group sheet · confusion matrix
 │   ├── interpretation.py     MDI · gain · permutation · SHAP · tree export
 │   ├── visualization/        raw-dataset plots, one module per family
 │   │   ├── common.py         palettes · dataset.ini · label bands · envelope · PDF writing
@@ -343,18 +453,23 @@ flowchart LR
 │   │   ├── signatures.py     plot_fault_signatures
 │   │   ├── wells.py          plot_well_history
 │   │   └── timeline.py       plot_faults_per_well
-│   └── cli.py                shared argparse
+│   └── cli.py                shared argparse (--eval defaults per --cv-group)
 ├── main.py                   runs all stages in order
 ├── scripts/                  the pipeline stages + dataset visualization (thin CLIs)
+│   └── audits/               standalone dataset and split audits (see *Audits*)
+├── tests/                    pytest suite
 ├── data/                     generated features (git-ignored)
-└── results/                  models · metrics · figures (mostly git-ignored)
-    └── figures/
-        ├── instances_per_fault/   one PDF per fault class
-        ├── fault_signatures/      one subdirectory per instance source
-        │   ├── real/
-        │   ├── simulated/
-        │   └── drawn/
-        └── well_histories/        one PDF per well + the fault timeline
+├── plots/                    stage-0 dataset plots (git-ignored)
+│   ├── instances_per_fault/   one PDF per fault class
+│   ├── fault_signatures/      one subdirectory per instance source
+│   │   ├── real/
+│   │   ├── simulated/
+│   │   └── drawn/
+│   └── well_histories/        one PDF per well + the fault timeline
+└── results/                  git-ignored
+    ├── models/ metrics/ figures/   artifacts of stages 2-5, one tag per run
+    ├── audits/                     what the audit scripts print
+    └── reports/                    markdown write-ups of explorations, citing the above
 ```
 
 ## Methodology notes
@@ -369,10 +484,15 @@ flowchart LR
   the class-coverage note above).
 - **Selection kept separate from evaluation**: hyperparameters are chosen on
   train+val only (GroupKFold search) and the winner is scored on data the
-  search never saw — a grouped holdout test set by default, or nested CV with
-  `--eval nested`. Validation scores are never reported as test scores. The
-  stage-5 depth sweep follows the same protocol, on the same seeded holdout
-  split, so the tree and the ensemble are judged on identical test data.
+  search never saw — a grouped holdout test set, nested CV, or leave-one-group-out
+  (`--eval`; the default follows the grouping). Validation scores are never
+  reported as test scores. The stage-5 depth sweep follows the same protocol
+  on the same seeded splits, so the tree and the ensemble are judged on
+  identical held-out data.
+- **Splits are shown, not assumed**: every split prints windows, groups and
+  the per-class share and prior of each side, because a grouped split can be
+  legal and still put 92 % of a class on one side; with wells as groups every
+  well is also scored on its own.
 - **Imputation inside the model pipeline** (`SimpleImputer(median)`), so it is
   refit per fold, avoiding leakage. This replaces the two divergent imputation
   strategies of the original repo.

@@ -79,11 +79,63 @@ def per_class_metrics(y_true: np.ndarray, y_pred: np.ndarray, label_map: dict[in
     }
 
 
+# A per-group score sheet is printed and stored whenever the evaluation table
+# has at most this many groups — always the case with wells as groups (3W has
+# 42), never with instances (a thousand). See ``per_group_metrics``.
+PER_GROUP_MAX_GROUPS = 50
+
+
+def per_group_metrics(preds: pd.DataFrame, max_groups: int = PER_GROUP_MAX_GROUPS) -> dict:
+    """Score every group of the evaluation table on its own.
+
+    A pooled score hides which groups fail: with wells as groups, one well
+    holding half the windows decides the pooled number, and a well predicted
+    entirely wrong is invisible if it is small. The sheet is only built when
+    the groups are few enough to read (``max_groups``), which is the well
+    case; with a thousand instances it returns empty.
+
+    Parameters
+    ----------
+    preds : pd.DataFrame
+        Held-out predictions with columns ``group``, ``y_true``, ``y_pred``.
+    max_groups : int
+        Skip the sheet when the table has more groups than this.
+
+    Returns
+    -------
+    dict
+        ``{str(group): {f1_macro, accuracy, n_windows, n_classes, classes}}``
+        in group order (numeric when the groups are numbers), or ``{}``.
+        ``classes`` are the true labels present, so a one-class group's
+        macro F1 can be read for what it is.
+    """
+    if preds["group"].nunique() > max_groups:
+        return {}
+
+    def key(group) -> tuple:
+        text = str(group)
+        return (not text.isdigit(), int(text) if text.isdigit() else text)
+
+    sheet = {}
+    for group in sorted(preds["group"].unique(), key=key):
+        g = preds[preds["group"] == group]
+        sheet[str(group)] = {
+            "f1_macro": round(
+                float(f1_score(g["y_true"], g["y_pred"], average="macro", zero_division=0)), 4
+            ),
+            "accuracy": round(float(accuracy_score(g["y_true"], g["y_pred"])), 4),
+            "n_windows": len(g),
+            "n_classes": int(g["y_true"].nunique()),
+            "classes": sorted(int(c) for c in g["y_true"].unique()),
+        }
+    return sheet
+
+
 def per_fold_metrics(preds: pd.DataFrame) -> dict:
     """Compute F1-macro per fold from the evaluation table.
 
     The holdout protocol has a single fold; the nested protocol one per outer
-    fold.
+    fold; leave-one-out one per group.
 
     Parameters
     ----------

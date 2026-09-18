@@ -17,13 +17,23 @@ splits.
 Data used to *select* hyperparameters is kept separate from data used to
 *evaluate* the selected model, in one of two ways:
 
-- ``holdout`` (default) — a grouped test set is split off first and never
-  touches the search; the search cross-validates on the remainder and the
-  refit winner is scored once on the test set.
+- ``holdout`` (default for instance grouping) — a grouped test set is split
+  off first and never touches the search; the search cross-validates on the
+  remainder and the refit winner is scored once on the test set.
 - ``nested`` — an outer grouped CV whose every fold runs its own inner search;
   the out-of-fold predictions of the per-fold winners form the evaluation.
   Unbiased and uses all data for evaluation, at roughly ``N_SPLITS_OUTER``
   times the cost.
+- ``leave-one-out`` (default for well grouping) — the nested protocol with one
+  group per outer fold, so every group is predicted by a model that never saw
+  it and gets a score of its own. With wells as groups that is a score per
+  well — what a single seeded holdout of a handful of wells cannot give.
+
+Whatever the protocol, every split prints its composition — windows, groups
+and, per class, how much of the class each side holds and what share of the
+side it makes up (``split_composition``) — because a grouped split can be
+legal and still lopsided: a class present on both sides may still have 92 %
+of its windows on one of them.
 """
 
 from dataclasses import dataclass, replace
@@ -157,7 +167,14 @@ def group_labels(y: np.ndarray, grouping: str) -> np.ndarray:
 
 @dataclass
 class TaskData:
-    """A modeling-ready dataset for one task.
+    """A modeling-ready dataset for one task and one label set.
+
+    Two label spaces live side by side. ``y`` is what the models are fit on
+    and scored against — the dataset's own classes under the standard
+    grouping, their groups under any other. ``fine_y`` is always the
+    dataset's own classes, whatever ``y`` is, and every split is built from
+    it (see ``holdout_split``), so runs that differ only in their class
+    grouping are evaluated on exactly the same rows.
 
     Attributes
     ----------
@@ -165,16 +182,24 @@ class TaskData:
         Feature matrix, one row per window (may contain NaN; the model
         pipeline imputes).
     y : np.ndarray
-        Original integer labels (non-contiguous for detection).
+        Labels being modeled (non-contiguous for detection; grouped when
+        ``class_grouping`` is not ``"standard"``).
     groups : np.ndarray
         Group key per row (``instance_id`` or ``well_id``), for grouped
         cross-validation.
     feature_cols : list[str]
         Feature column names, aligned with ``X``.
     label_map : dict[int, str]
-        Human-readable name per label value.
+        Human-readable name per value of ``y``.
     n_windows : int
         Number of rows in ``X``.
+    fine_y : np.ndarray
+        The dataset's own integer labels, ungrouped. Equal to ``y`` under the
+        standard grouping.
+    fine_label_map : dict[int, str]
+        Human-readable name per value of ``fine_y``.
+    class_grouping : str
+        The grouping ``y`` was produced with (``"standard"`` when none).
     """
 
     X: np.ndarray
@@ -183,6 +208,9 @@ class TaskData:
     feature_cols: list[str]
     label_map: dict[int, str]
     n_windows: int
+    fine_y: np.ndarray
+    fine_label_map: dict[int, str]
+    class_grouping: str = "standard"
 
 
 def load_task_data(
@@ -191,6 +219,7 @@ def load_task_data(
     cv_group: str = CV_GROUPING,
     allow_overlap: bool = False,
     keep_extreme_values: bool = False,
+    class_grouping: str = "standard",
 ) -> TaskData:
     """Load the features parquet and assemble the dataset for one task.
 
@@ -215,11 +244,16 @@ def load_task_data(
         Load the features built with the extreme readings kept (the
         ``_extremes`` parquet) instead of the default ones, in which stage 1
         masked them.
+    class_grouping : str
+        Label set to model: ``"standard"`` (the dataset's own classes),
+        ``"hydrate"`` or ``"custom"``. The features are untouched by this —
+        only the labels change — and the splits stay keyed to the dataset's
+        own classes, so a grouped run and a standard one share their folds.
 
     Returns
     -------
     TaskData
-        Feature matrix, labels, groups, and label names for the task.
+        Feature matrix, both label spaces, groups, and label names.
     """
     if cv_group not in CV_GROUPINGS:
         raise ValueError(f"Unknown cv_group: {cv_group!r} (expected {CV_GROUPINGS})")
@@ -244,20 +278,29 @@ def load_task_data(
 
     if task == "prediction":
         df = df[df["window_label"] == 0]
-        label_col, label_map = "fault_class", FAULT_CLASSES
+        label_col, fine_label_map = "fault_class", FAULT_CLASSES
     elif task == "detection":
-        label_col, label_map = "window_label", WINDOW_CLASSES
+        label_col, fine_label_map = "window_label", WINDOW_CLASSES
     else:
         raise ValueError(f"Unknown task: {task!r} (expected {TASKS})")
+
+    fine_y = df[label_col].to_numpy()
+    if class_grouping == "standard":
+        y, label_map = fine_y, fine_label_map
+    else:
+        y, label_map = group_labels(fine_y, class_grouping), grouping_label_map(class_grouping)
 
     feature_cols = [c for c in df.columns if c not in META_COLS]
     return TaskData(
         X=df[feature_cols].to_numpy(),
-        y=df[label_col].to_numpy(),
+        y=y,
         groups=df[cv_group].to_numpy(),
         feature_cols=feature_cols,
         label_map=label_map,
         n_windows=len(df),
+        fine_y=fine_y,
+        fine_label_map=fine_label_map,
+        class_grouping=class_grouping,
     )
 
 
@@ -317,8 +360,10 @@ def search_hyperparameters(
 ) -> RandomizedSearchCV:
     """Run a grouped randomized hyperparameter search optimizing F1-macro.
 
-    The search folds come from ``coverage_folds``, so every training fold
-    holds every class of the data — XGBoost refuses to fit otherwise.
+    The search folds come from ``coverage_folds`` on ``data.fine_y``, so
+    every training fold holds every class of the dataset — XGBoost refuses to
+    fit otherwise, and covering the fine classes covers their groups too,
+    which keeps a grouped run's folds identical to a standard one's.
 
     Parameters
     ----------
@@ -346,13 +391,24 @@ def search_hyperparameters(
     if verbose:
         print(f"  Class coverage of the {N_SPLITS_CV} search folds:")
     folds = coverage_folds(
-        data.y,
+        data.fine_y,
         data.groups,
         N_SPLITS_CV,
         np.random.default_rng(RANDOM_STATE),
-        data.label_map,
+        data.fine_label_map,
         verbose,
     )
+    if verbose:
+        for k, (train_idx, val_idx) in enumerate(folds, start=1):
+            print(f"  Composition of search fold {k}/{len(folds)}:")
+            print(
+                split_composition(
+                    data.y,
+                    data.groups,
+                    {"train": train_idx, "validation": val_idx},
+                    data.label_map,
+                )
+            )
     search = RandomizedSearchCV(
         estimator=pipe,
         param_distributions=grid,
@@ -388,15 +444,147 @@ def subset_task_data(data: TaskData, idx: np.ndarray) -> TaskData:
     Returns
     -------
     TaskData
-        The restricted dataset (feature columns and label map unchanged).
+        The restricted dataset (feature columns and label maps unchanged).
     """
-    return replace(data, X=data.X[idx], y=data.y[idx], groups=data.groups[idx], n_windows=len(idx))
+    return replace(
+        data,
+        X=data.X[idx],
+        y=data.y[idx],
+        groups=data.groups[idx],
+        n_windows=len(idx),
+        fine_y=data.fine_y[idx],
+    )
 
 
 def _carriers(y: np.ndarray, groups: np.ndarray) -> dict[int, list]:
     """Sorted list of the groups in which each class occurs."""
     frame = pd.DataFrame({"y": y, "group": groups}).drop_duplicates()
     return {int(c): sorted(part["group"].tolist()) for c, part in frame.groupby("y")}
+
+
+def group_sort_key(group) -> tuple:
+    """Order groups numerically when they are numbers written as strings (well ids)."""
+    text = str(group)
+    return (not text.isdigit(), int(text) if text.isdigit() else text)
+
+
+def class_counts(y: np.ndarray, label_map: dict[int, str]) -> dict[str, int]:
+    """Count the rows of every class present in ``y``, keyed by class name.
+
+    Parameters
+    ----------
+    y : np.ndarray
+        Labels of the rows to count.
+    label_map : dict[int, str]
+        Class names; a label missing from it is keyed by its number.
+
+    Returns
+    -------
+    dict[str, int]
+        ``{"0 Normal": 12125, ...}`` in ascending label order.
+    """
+    counts = pd.Series(y).value_counts().sort_index()
+    return {_class_name(int(c), label_map): int(n) for c, n in counts.items()}
+
+
+def held_out_summary(
+    y: np.ndarray, groups: np.ndarray, idx: np.ndarray, label_map: dict[int, str]
+) -> str:
+    """One line saying what a held-out part contains, for the fold logs.
+
+    Parameters
+    ----------
+    y : np.ndarray
+        Labels of every row.
+    groups : np.ndarray
+        Group key of every row.
+    idx : np.ndarray
+        Row indices of the held-out part.
+    label_map : dict[int, str]
+        Class names.
+
+    Returns
+    -------
+    str
+        E.g. ``"well 2: 24,429 windows (0 Normal 24,166 · 6 Quick PCK
+        Restriction 263)"``; several groups are counted rather than named.
+    """
+    held = sorted(set(np.unique(groups[idx])), key=group_sort_key)
+    what = f"group {held[0]}" if len(held) == 1 else f"{len(held)} groups"
+    classes = " · ".join(f"{name} {n:,}" for name, n in class_counts(y[idx], label_map).items())
+    return f"{what}: {len(idx):,} windows ({classes})"
+
+
+def split_composition(
+    y: np.ndarray,
+    groups: np.ndarray,
+    parts: dict[str, np.ndarray],
+    label_map: dict[int, str],
+    max_listed_groups: int = 12,
+) -> str:
+    """Tabulate what every part of a split holds, class by class.
+
+    A grouped split is legal as soon as every class is on both sides, but
+    legality says nothing about proportion: the seeded well-grouped holdout of
+    the prediction task puts 92 % of Rapid Productivity Loss and 68 % of
+    normal operation in the test part, and turns a 49 %-Normal training prior
+    into a 95 %-Normal test prior. Every split therefore prints this table,
+    which shows both numbers per class: the share of the *class* that each
+    part holds, and the share of the *part* that the class makes up (its
+    prior there). Parts with few groups also list them by name.
+
+    Parameters
+    ----------
+    y : np.ndarray
+        Labels of every row.
+    groups : np.ndarray
+        Group key of every row.
+    parts : dict[str, np.ndarray]
+        Part name -> row indices, in display order (e.g. ``{"train+val":
+        ..., "test": ...}``).
+    label_map : dict[int, str]
+        Class names.
+    max_listed_groups : int
+        A part with at most this many groups gets them listed.
+
+    Returns
+    -------
+    str
+        The table, indented for the stage logs; callers print it.
+    """
+    names = list(parts)
+    n_total = sum(len(rows) for rows in parts.values())
+    counts = {name: pd.Series(y[rows]).value_counts() for name, rows in parts.items()}
+    classes = sorted({int(c) for series in counts.values() for c in series.index})
+    class_total = {c: sum(int(counts[n].get(c, 0)) for n in names) for c in classes}
+
+    label_w = max(24, *(len(_class_name(c, label_map)) for c in classes)) + 2
+    cell_w = 27
+    lines = [
+        f"    {'':<{label_w}}" + "".join(f"{name:>{cell_w}}" for name in names),
+        f"    {'windows':<{label_w}}"
+        + "".join(
+            f"{f'{len(rows):,} ({100 * len(rows) / n_total:.1f}%)':>{cell_w}}"
+            for rows in parts.values()
+        ),
+        f"    {'groups':<{label_w}}"
+        + "".join(f"{pd.Series(groups[rows]).nunique():>{cell_w}}" for rows in parts.values()),
+        f"    {'class':<{label_w}}"
+        + "".join(f"{'n':>{cell_w - 18}}{'of class':>10}{'prior':>8}" for _ in names),
+    ]
+    for c in classes:
+        cells = []
+        for name, rows in parts.items():
+            n = int(counts[name].get(c, 0))
+            of_class = 100 * n / class_total[c] if class_total[c] else 0.0
+            prior = 100 * n / len(rows) if len(rows) else 0.0
+            cells.append(f"{n:>{cell_w - 18},}{f'{of_class:.1f}%':>10}{f'{prior:.1f}%':>8}")
+        lines.append(f"    {_class_name(c, label_map):<{label_w}}" + "".join(cells))
+    for name, rows in parts.items():
+        held = sorted(set(np.unique(groups[rows])), key=group_sort_key)
+        if len(held) <= max_listed_groups:
+            lines.append(f"    {name} groups: {', '.join(str(g) for g in held)}")
+    return "\n".join(lines)
 
 
 def _class_name(label: int, label_map: dict[int, str]) -> str:
@@ -614,12 +802,19 @@ def coverage_folds(
 def holdout_split(data: TaskData, verbose: bool = False) -> tuple[np.ndarray, np.ndarray]:
     """Split off the seeded grouped test set shared by every holdout consumer.
 
-    The split depends only on the groups and ``RANDOM_STATE`` — including the
-    random picks of the repair that guarantees every class on both sides (see
-    ``repair_holdout``) — so every stage that calls it on the same dataset
-    (same task, normalization, and CV grouping) holds out exactly the same
-    groups: the ensemble and the distilled tree are judged on identical test
-    data.
+    The split depends only on the groups, the dataset's own classes and
+    ``RANDOM_STATE`` — including the random picks of the repair that
+    guarantees every class on both sides (see ``repair_holdout``) — so every
+    stage that calls it on the same dataset (same task, normalization, and CV
+    grouping) holds out exactly the same groups: the ensemble and the
+    distilled tree are judged on identical test data.
+
+    The repair runs on ``data.fine_y`` even when the run models a coarser
+    label set, for two reasons: covering every fine class covers every group
+    of them, and keeping the split independent of the label set is what lets
+    a grouped run be compared with a standard one window for window. The
+    composition table below it, on the other hand, reports the labels being
+    modeled — those are the priors the model actually meets.
 
     Parameters
     ----------
@@ -634,25 +829,33 @@ def holdout_split(data: TaskData, verbose: bool = False) -> tuple[np.ndarray, np
         Row indices of the train+val part and of the test part.
     """
     splitter = GroupShuffleSplit(n_splits=1, test_size=TEST_SIZE, random_state=RANDOM_STATE)
-    _, test_idx = next(splitter.split(data.X, data.y, data.groups))
+    _, test_idx = next(splitter.split(data.X, data.fine_y, data.groups))
     if verbose:
         print("  Class coverage of the holdout split:")
     test_groups = repair_holdout(
-        data.y,
+        data.fine_y,
         data.groups,
         set(np.unique(data.groups[test_idx])),
         np.random.default_rng(RANDOM_STATE),
-        data.label_map,
+        data.fine_label_map,
         verbose,
     )
     in_test = np.isin(data.groups, list(test_groups))
+    trainval_idx, test_idx = np.flatnonzero(~in_test), np.flatnonzero(in_test)
     if verbose:
         print(
             f"    every class present in both parts: train {len(set(data.groups) - test_groups)} "
-            f"groups / {int((~in_test).sum()):,} windows, test {len(test_groups)} groups / "
-            f"{int(in_test.sum()):,} windows"
+            f"groups / {len(trainval_idx):,} windows, test {len(test_groups)} groups / "
+            f"{len(test_idx):,} windows"
         )
-    return np.flatnonzero(~in_test), np.flatnonzero(in_test)
+    # Always shown: a split can be legal and still lopsided (see split_composition).
+    print("  Composition of the holdout split:")
+    print(
+        split_composition(
+            data.y, data.groups, {"train+val": trainval_idx, "test": test_idx}, data.label_map
+        )
+    )
+    return trainval_idx, test_idx
 
 
 def holdout_evaluation(
@@ -705,24 +908,103 @@ def holdout_evaluation(
         "n_test_groups": int(pd.Series(data.groups[test_idx]).nunique()),
         "n_trainval_windows": len(trainval_idx),
         "n_test_windows": len(test_idx),
+        "class_counts": {
+            "trainval": class_counts(trainval.y, data.label_map),
+            "test": class_counts(data.y[test_idx], data.label_map),
+        },
     }
     return search, encoder, eval_frame, info
 
 
+def n_outer_splits(eval_mode: str, data: TaskData) -> int:
+    """Number of outer folds of an out-of-fold evaluation protocol.
+
+    Parameters
+    ----------
+    eval_mode : str
+        ``"nested"`` or ``"leave-one-out"``.
+    data : TaskData
+        Dataset returned by ``load_task_data``.
+
+    Returns
+    -------
+    int
+        ``N_SPLITS_OUTER`` for nested CV; one fold per group for
+        leave-one-out.
+    """
+    if eval_mode == "nested":
+        return N_SPLITS_OUTER
+    if eval_mode == "leave-one-out":
+        return int(pd.Series(data.groups).nunique())
+    raise ValueError(f"{eval_mode!r} has no outer folds (expected 'nested' or 'leave-one-out')")
+
+
+def outer_folds(
+    data: TaskData, eval_mode: str, verbose: bool = False
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """The seeded outer folds shared by every consumer of one protocol.
+
+    Like ``holdout_split`` for the holdout protocol, the folds depend only on
+    the dataset's own classes, the groups, the protocol and ``RANDOM_STATE``,
+    so stage 2 and stage 5 hold out exactly the same rows in the same folds —
+    and so do runs that differ only in their class grouping. The ensemble and
+    the distilled tree are therefore judged on identical out-of-fold data.
+    Leave-one-out is ``GroupKFold`` with as many folds as groups, i.e. one
+    group held out per fold; ``coverage_folds`` then pins a class carried by a
+    single group to training, so that group is never held out and the class
+    never evaluated — the verbose log reports it.
+
+    Parameters
+    ----------
+    data : TaskData
+        Dataset returned by ``load_task_data``.
+    eval_mode : str
+        ``"nested"`` or ``"leave-one-out"``.
+    verbose : bool
+        Print the class-coverage repair of the folds (default off).
+
+    Returns
+    -------
+    list[(np.ndarray, np.ndarray)]
+        Row indices of the training and held-out part of every fold.
+    """
+    n_splits = n_outer_splits(eval_mode, data)
+    if verbose:
+        print(f"  Class coverage of the {n_splits} outer folds:")
+    return coverage_folds(
+        data.fine_y,
+        data.groups,
+        n_splits,
+        np.random.default_rng(RANDOM_STATE),
+        data.fine_label_map,
+        verbose,
+    )
+
+
 def nested_evaluation(
-    model_type: str, data: TaskData, n_jobs: int = N_JOBS, verbose: bool = False
+    model_type: str,
+    data: TaskData,
+    n_jobs: int = N_JOBS,
+    verbose: bool = False,
+    eval_mode: str = "nested",
 ) -> tuple[pd.DataFrame, list[dict]]:
-    """Nested grouped CV: every outer fold runs its own inner search.
+    """Out-of-fold evaluation: every outer fold runs its own inner search.
 
     Each outer training set selects hyperparameters with its own inner
     ``GroupKFold`` search and predicts its held-out outer fold, so no window
     is ever predicted by a model whose hyperparameters saw it. Unbiased and
-    uses all data for evaluation, at roughly ``N_SPLITS_OUTER`` times the
-    cost of the holdout protocol. Note the selected hyperparameters may
-    differ between folds — the evaluation describes the *procedure*, not one
-    fixed configuration. The outer folds come from ``coverage_folds``: a
-    class carried by a single group is pinned to training and therefore never
-    evaluated, which the verbose log reports.
+    uses all data for evaluation, at roughly one full search per outer fold:
+    ``N_SPLITS_OUTER`` of them for ``nested``, one per group for
+    ``leave-one-out`` — 33 searches with wells as groups, a thousand with
+    instances, which the log states up front as a fit count. Note the
+    selected hyperparameters may differ between folds — the evaluation
+    describes the *procedure*, not one fixed configuration. The outer folds
+    come from ``outer_folds``: a class carried by a single group is pinned to
+    training and therefore never evaluated, which the verbose log reports.
+
+    Every fold logs what it holds out (group, windows, classes), and the full
+    composition table under ``verbose``; leave-one-out folds hold one group
+    each, so the records double as a per-group score sheet.
 
     Parameters
     ----------
@@ -733,29 +1015,40 @@ def nested_evaluation(
     n_jobs : int
         Parallel workers for the classifier and the searches.
     verbose : bool
-        Print per-candidate search progress (default off).
+        Print per-candidate search progress and per-fold composition tables
+        (default off).
+    eval_mode : str
+        ``"nested"`` or ``"leave-one-out"``.
 
     Returns
     -------
     (pd.DataFrame, list[dict])
         Outer-fold predictions over all data (``group``, ``fold``,
-        ``y_true``, ``y_pred``) and one record per outer fold with the
-        selected parameters and its validation/test F1-macro.
+        ``y_true``, ``y_pred``) and one record per outer fold with the groups
+        it held out, the selected parameters and its validation/test scores.
     """
-    if verbose:
-        print(f"  Class coverage of the {N_SPLITS_OUTER} outer folds:")
-    outer = coverage_folds(
-        data.y,
-        data.groups,
-        N_SPLITS_OUTER,
-        np.random.default_rng(RANDOM_STATE),
-        data.label_map,
-        verbose,
+    outer = outer_folds(data, eval_mode, verbose)
+    fits_per_search = N_ITER_SEARCH * N_SPLITS_CV + 1
+    print(
+        f"  {len(outer)} outer folds x ({N_ITER_SEARCH} candidates x {N_SPLITS_CV} inner folds "
+        f"+ 1 refit) = {len(outer) * fits_per_search:,} model fits"
     )
     parts, records = [], []
 
     for fold, (train_idx, test_idx) in enumerate(outer, start=1):
-        print(f"  Outer fold {fold}/{N_SPLITS_OUTER}: inner search...")
+        print(
+            f"  Outer fold {fold}/{len(outer)} — held out "
+            f"{held_out_summary(data.y, data.groups, test_idx, data.label_map)} — inner search..."
+        )
+        if verbose:
+            print(
+                split_composition(
+                    data.y,
+                    data.groups,
+                    {"train (inner search)": train_idx, "held out": test_idx},
+                    data.label_map,
+                )
+            )
         train = subset_task_data(data, train_idx)
         encoder = LabelEncoder().fit(train.y)
         search = search_hyperparameters(model_type, train, encoder, n_jobs, verbose)
@@ -763,7 +1056,11 @@ def nested_evaluation(
         y_pred = encoder.inverse_transform(search.best_estimator_.predict(data.X[test_idx]))
         y_true = data.y[test_idx]
         f1 = f1_score(y_true, y_pred, average="macro", zero_division=0)
-        print(f"    val F1-macro = {search.best_score_:.4f} | test F1-macro = {f1:.4f}")
+        accuracy = float(np.mean(y_true == y_pred))
+        print(
+            f"    val F1-macro = {search.best_score_:.4f} | test F1-macro = {f1:.4f} "
+            f"| test accuracy = {accuracy:.4f}"
+        )
 
         parts.append(
             pd.DataFrame(
@@ -775,13 +1072,18 @@ def nested_evaluation(
                 }
             )
         )
+        held = sorted(set(np.unique(data.groups[test_idx])), key=group_sort_key)
         records.append(
             {
                 "fold": fold,
+                "n_held_out_groups": len(held),
+                **({"group": str(held[0])} if len(held) == 1 else {}),
                 "best_params": {k.removeprefix("clf__"): v for k, v in search.best_params_.items()},
                 "val_f1_macro": round(float(search.best_score_), 4),
                 "test_f1_macro": round(float(f1), 4),
+                "test_accuracy": round(accuracy, 4),
                 "n_test_windows": len(test_idx),
+                "class_counts": class_counts(y_true, data.label_map),
             }
         )
 

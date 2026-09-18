@@ -2,19 +2,28 @@
 
 Data used to select hyperparameters never evaluates the selection:
 
-- ``--eval holdout`` (default) — a grouped test set is split off first and
-  never touches the search; a GroupKFold RandomizedSearchCV (F1-macro) runs on
-  the remainder and the refit winner is scored once on the test set. The
-  saved model is that winner — the exact model the test score describes.
+- ``--eval holdout`` (default with ``--cv-group instance_id``) — a grouped test
+  set is split off first and never touches the search; a GroupKFold
+  RandomizedSearchCV (F1-macro) runs on the remainder and the refit winner is
+  scored once on the test set. The saved model is that winner — the exact
+  model the test score describes.
 - ``--eval nested`` — grouped nested CV: every outer fold runs its own inner
   search and predicts its held-out fold, evaluating the whole procedure on all
   data (~N_SPLITS_OUTER times slower). The saved model comes from one final
   search on all data; its tuning score is validation-only.
+- ``--eval leave-one-out`` (default with ``--cv-group well_id``) — the nested
+  protocol with one group per outer fold: as many inner searches as there are
+  groups, and a score per group. With wells as groups that is a score per
+  well, which a single seeded holdout of eight wells cannot give; with
+  instances as groups it is a thousand searches, allowed but slow.
 
 Every split is repaired so that each class is present on both of its sides
 (``train_val_test.repair_holdout`` and ``coverage_folds``): a class that lives
 in a single group stops the run under ``holdout`` and is pinned to training —
-never evaluated — under ``nested``.
+never evaluated — under ``nested`` and ``leave-one-out``. Every split also
+prints its composition — windows, groups, and per class how much of the class
+each side holds and what share of the side it makes up — since a legal split
+can still be lopsided.
 
 Evaluation and interpretation consume the artifacts written here, they never
 retrain.
@@ -24,17 +33,28 @@ through the same search and the same evaluation, and additionally exports
 itself as rules and a figure — being already interpretable, it skips stages 4
 and 5, which exist to read a black box.
 
+``--class-grouping`` selects the label set the model is *fit* on: the
+dataset's own classes by default, their groups otherwise (e.g. ``hydrate`` =
+Normal / Other Problem / Hydrate). A grouped run spends its whole capacity —
+and its balanced class weights — on the coarser question instead of learning
+distinctions it is not asked about, and it gets its own artifact tag, so it
+sits beside the standard run rather than replacing it. The splits are built
+from the dataset's own classes either way, so the two runs are evaluated on
+exactly the same rows and stage 3 can compare them directly.
+
 Usage
 -----
     uv run scripts/02_train_val_test.py [--model {rf,xgb,dt}] [--task {prediction,detection}]
-                                        [--eval {holdout,nested}]
+                                        [--class-grouping {standard,hydrate,custom}]
+                                        [--eval {holdout,nested,leave-one-out}]
                                         [--cv-group {instance_id,well_id}]
                                         [--no-normalization] [--allow-overlap]
                                         [--n-jobs N] [--verbose]
 
 Outputs (tag = <model>_<task>_<norm>; ``_overlap`` appended with
 --allow-overlap, ``_wellcv`` with --cv-group well_id, ``_nested`` with --eval
-nested)
+nested, ``_loo`` with --eval leave-one-out, ``_<class-grouping>`` when
+grouping)
 ---------------------------------------
     results/models/<tag>.joblib             fitted imputer+classifier pipeline
     results/models/<tag>_label_encoder.joblib
@@ -52,12 +72,11 @@ import joblib
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 
-from flowml.cli import run_parser, run_tag
+from flowml.cli import add_class_grouping_arg, run_parser, run_tag
 from flowml.config import (
     METRICS_DIR,
     MODELS_DIR,
     N_SPLITS_CV,
-    N_SPLITS_OUTER,
     norm_suffix,
 )
 from flowml.evaluation import global_metrics
@@ -66,6 +85,7 @@ from flowml.train_val_test import (
     WHITE_BOX_MODELS,
     holdout_evaluation,
     load_task_data,
+    n_outer_splits,
     nested_evaluation,
     search_hyperparameters,
 )
@@ -73,7 +93,9 @@ from flowml.train_val_test import (
 
 def main() -> None:
     """Parse arguments, run the evaluation protocol, and write the artifacts."""
-    args = run_parser(__doc__.splitlines()[0]).parse_args()
+    parser = run_parser(__doc__.splitlines()[0])
+    add_class_grouping_arg(parser)
+    args = parser.parse_args()
     normalized = not args.no_normalization
     tag = run_tag(
         args.model,
@@ -83,18 +105,28 @@ def main() -> None:
         args.eval,
         args.allow_overlap,
         args.keep_extreme_values,
+        args.class_grouping,
     )
 
     print(f"Training {tag} | started {datetime.now().astimezone():%Y-%m-%d %H:%M:%S}")
 
     print("\n[1/3] Loading dataset...")
     data = load_task_data(
-        args.task, normalized, args.cv_group, args.allow_overlap, args.keep_extreme_values
+        args.task,
+        normalized,
+        args.cv_group,
+        args.allow_overlap,
+        args.keep_extreme_values,
+        args.class_grouping,
     )
     print(
         f"  {data.n_windows:,} windows | {len(data.feature_cols)} features "
         f"| {pd.Series(data.groups).nunique()} groups ({args.cv_group})"
     )
+    if args.class_grouping != "standard":
+        print(f"  Fit on the '{args.class_grouping}' grouping of the classes:")
+        for cls, n in pd.Series(data.y).value_counts().sort_index().items():
+            print(f"    {cls} {data.label_map[cls]:<16}: {n:>8,} ({100 * n / data.n_windows:.1f}%)")
 
     evaluation: dict = {"mode": args.eval}
     if args.eval == "holdout":
@@ -111,11 +143,18 @@ def main() -> None:
         print(f"  Best F1-macro (validation CV): {search.best_score_:.4f}")
         print(f"  F1-macro (held-out test)     : {test_metrics['f1_macro']:.4f}")
     else:
-        print(f"\n[2/3] Nested evaluation (GroupKFold({N_SPLITS_OUTER}) outer x inner searches)...")
+        n_outer = n_outer_splits(args.eval, data)
+        what = (
+            f"Nested evaluation (GroupKFold({n_outer}) outer x inner searches)"
+            if args.eval == "nested"
+            else f"Leave-one-out evaluation ({n_outer} groups, one held out per outer fold)"
+        )
+        print(f"\n[2/3] {what}...")
         eval_frame, fold_records = nested_evaluation(
-            args.model, data, n_jobs=args.n_jobs, verbose=args.verbose
+            args.model, data, n_jobs=args.n_jobs, verbose=args.verbose, eval_mode=args.eval
         )
         test_metrics = global_metrics(eval_frame["y_true"], eval_frame["y_pred"])
+        evaluation["n_outer_folds"] = n_outer
         evaluation["outer_folds"] = fold_records
         evaluation["test_f1_macro"] = test_metrics["f1_macro"]
         print(f"  Pooled outer-fold F1-macro: {test_metrics['f1_macro']:.4f}")
@@ -132,21 +171,23 @@ def main() -> None:
     print("\n[3/3] Writing artifacts...")
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     METRICS_DIR.mkdir(parents=True, exist_ok=True)
-    joblib.dump(search.best_estimator_, MODELS_DIR / f"{tag}.joblib")
-    joblib.dump(encoder, MODELS_DIR / f"{tag}_label_encoder.joblib")
-    pd.DataFrame(search.cv_results_).to_csv(METRICS_DIR / f"{tag}_cv_results.csv", index=False)
-    eval_frame.to_parquet(METRICS_DIR / f"{tag}_eval.parquet", index=False)
-
     if args.model in WHITE_BOX_MODELS:
         # A single tree is its own explanation, so stages 4 and 5 are skipped
         # for it; export here what they would have produced. The tree was fit
-        # on encoded labels, so the names are keyed by encoded value.
+        # on encoded labels, so the names are keyed by encoded value. Exporting
+        # before the dump means the saved model is the pruned one the rules and
+        # the drawing describe — same predictions, fewer splits.
         export_tree(
             search.best_estimator_.named_steps["clf"],
             data.feature_cols,
             {i: data.label_map.get(c, str(c)) for i, c in enumerate(encoder.classes_)},
             tag,
         )
+
+    joblib.dump(search.best_estimator_, MODELS_DIR / f"{tag}.joblib")
+    joblib.dump(encoder, MODELS_DIR / f"{tag}_label_encoder.joblib")
+    pd.DataFrame(search.cv_results_).to_csv(METRICS_DIR / f"{tag}_cv_results.csv", index=False)
+    eval_frame.to_parquet(METRICS_DIR / f"{tag}_eval.parquet", index=False)
 
     summary = {
         "tag": tag,
@@ -156,12 +197,14 @@ def main() -> None:
         "overlapping_instances": "kept" if args.allow_overlap else "dropped",
         "extreme_values": "kept" if args.keep_extreme_values else "masked",
         "cv_group": args.cv_group,
+        "class_grouping": args.class_grouping,
         "trained_at": datetime.now().astimezone().isoformat(),
         "dataset": {
             "n_windows": data.n_windows,
             "n_features": len(data.feature_cols),
             "n_groups": int(pd.Series(data.groups).nunique()),
             "n_classes": len(encoder.classes_),
+            "class_names": {str(c): data.label_map.get(c, str(c)) for c in encoder.classes_},
         },
         "search": {
             "strategy": (
@@ -178,7 +221,11 @@ def main() -> None:
         json.dump(summary, f, ensure_ascii=False, indent=2)
 
     print(f"\nDone. Artifacts written under results/ with tag '{tag}'.")
-    print(f"Next: uv run scripts/03_evaluate.py --model {args.model} --task {args.task}")
+    print(
+        f"Next: uv run scripts/03_evaluate.py --model {args.model} --task {args.task} "
+        f"--cv-group {args.cv_group} --eval {args.eval} "
+        f"--class-grouping {args.class_grouping}"
+    )
 
 
 if __name__ == "__main__":
