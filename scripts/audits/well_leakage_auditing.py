@@ -29,7 +29,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from flowml.cli import add_normalization_arg, run_parser
+from flowml.cli import add_frozen_sensors_arg, add_normalization_arg, run_parser
 from flowml.config import (
     FAULT_CLASSES,
     RESULTS_DIR,
@@ -78,7 +78,12 @@ def audit(task: str, normalization: str, args) -> None:
         print(f"    {source:<10} {n:>8,} ({100 * n / len(df):.1f}%)")
 
     data = load_task_data(
-        task, normalization, "instance_id", args.allow_overlap, args.keep_extreme_values
+        task,
+        normalization,
+        args.frozen_mode,
+        "instance_id",
+        args.allow_overlap,
+        args.keep_extreme_values,
     )
     assert len(df) == data.n_windows, "features frame and task data disagree"
     print("\nInstance-grouped holdout split (the one stages 2 and 5 use):")
@@ -120,6 +125,7 @@ def main() -> None:
     """Parse the shared switches and run the audit."""
     parser = run_parser(__doc__.splitlines()[0], with_model=False)
     add_normalization_arg(parser)
+    add_frozen_sensors_arg(parser)
     parser.add_argument("--task", choices=TASKS, default="prediction", help="(default: prediction)")
     parser.add_argument(
         "--output-file",

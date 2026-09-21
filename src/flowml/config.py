@@ -7,6 +7,7 @@ environment variable.
 """
 
 import os
+from collections.abc import Iterable
 from pathlib import Path
 
 # -- Paths --------------------------------------------------------------------
@@ -95,6 +96,87 @@ def ref_col(sensor: str, stat: str, reference: str) -> str:
 LOCATION_SCALE_STATS = ("mean", "min", "max", "median")  # (v - mu) / sigma
 SCALE_STATS = ("std", "iqr", "diff1_std", "diff2_std")  # v / sigma
 INVARIANT_STATS = ("skewness", "kurtosis")  # unchanged by an affine map
+
+
+def sensors_with_features(columns: Iterable[str]) -> list[str]:
+    """Sensors that a set of column names carries a complete feature set for.
+
+    Feature columns are ``<sensor>_<stat>``, and both halves are free text, so
+    a name cannot be split on a suffix alone: three entries of
+    ``FEATURE_STATS`` end in ``std`` (``std``, ``diff1_std``, ``diff2_std``),
+    which means matching ``_std`` turns ``P-TPT_diff1_std`` into a sensor
+    called ``P-TPT_diff1``. Candidates are therefore taken from the one
+    statistic that is not a suffix of another, ``mean``, and then *verified*
+    by requiring every statistic to be present — so the answer does not
+    silently depend on which names happen not to collide.
+
+    Parameters
+    ----------
+    columns : Iterable[str]
+        Column names of a features frame.
+
+    Returns
+    -------
+    list[str]
+        Sensor names, in the order the columns appear.
+    """
+    columns = list(columns)
+    present = set(columns)
+    candidates = (c[: -len("_mean")] for c in columns if c.endswith("_mean"))
+    return [s for s in candidates if all(f"{s}_{stat}" in present for stat in FEATURE_STATS)]
+
+
+# -- Sensor health ------------------------------------------------------------
+
+# What to do about a sensor that never moves. A frozen sensor makes every
+# dispersion statistic of its window exactly zero, and the trees split on that
+# at the root — "is this standard deviation exactly zero?" — so instrument
+# status reaches the model disguised as a physical quantity (TODO item 10).
+# Like the normalization reference, this is a choice of the run rather than of
+# the dataset: the window's own standard deviation is already in the parquet,
+# so the policy is applied at load time (see the ``sensor_health`` module).
+#
+# ``keep``  leave the degenerate zeros in place. The pipeline's behaviour
+#           before item 10, kept so the earlier results stay reproducible.
+# ``flag``  every statistic of a frozen sensor's window becomes NaN, for the
+#           per-fold imputer to fill, and an explicit ``<sensor>_frozen``
+#           indicator is added. Instrument status still reaches the model, but
+#           through one named feature instead of eleven fake measurements.
+# ``drop``  discard whole instances whose ``CRITICAL_SENSOR`` never moves, and
+#           otherwise leave the features alone.
+#
+# The two remedies are the two the TODO item proposes, kept as alternatives so
+# a report can compare each against ``keep`` one change at a time.
+FROZEN_MODES = ("keep", "flag", "drop")
+FROZEN_MODE = "flag"
+
+# Dispersion below which a sensor counts as frozen. Larger than
+# ``CONSTANT_THRESHOLD``, which is a guard against catastrophic cancellation in
+# scipy's moments rather than a statement about instruments; this one follows
+# the 3W Toolkit's ``CleanSignals.absolute_std_threshold``. The toolkit pairs it
+# with an IQR bound fitted across events, which is not reproduced here: the
+# physical bounds above already reject out-of-range readings, and fitting a
+# bound over the whole dataset before splitting is the contamination item 9
+# just removed.
+FROZEN_STD_THRESHOLD = 1e-6
+
+
+def frozen_suffix(frozen_mode: str) -> str:
+    """Artifact-name suffix for the frozen-sensor policy a run uses.
+
+    Parameters
+    ----------
+    frozen_mode : str
+        One of ``FROZEN_MODES``.
+
+    Returns
+    -------
+    str
+        ``""`` for the default, ``"_<name>"`` otherwise.
+    """
+    if frozen_mode not in FROZEN_MODES:
+        raise ValueError(f"Unknown frozen-sensor mode: {frozen_mode!r} (expected {FROZEN_MODES})")
+    return "" if frozen_mode == FROZEN_MODE else f"_{frozen_mode}"
 
 
 def norm_suffix(normalization: str) -> str:

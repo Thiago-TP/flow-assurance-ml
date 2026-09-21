@@ -93,6 +93,7 @@ under a unique tag:
 | `--eval`             | `holdout`, `nested`, `leave-one-out` | `holdout` with `instance_id`, `leave-one-out` with `well_id` | 2-5 |
 | `--cv-group`         | `instance_id`, `well_id`          | `instance_id`       | 2-5    |
 | `--normalization`    | `none`, `instance`, `normal`    | `none`              | 2-5    |
+| `--frozen-sensors`   | `flag`, `keep`, `drop`          | `flag`              | 2-5    |
 | `--allow-overlap`    | flag                                  | off                   | 1-5    |
 | `--keep-extreme-values` | flag                               | off                   | 1-5    |
 | `--n-jobs`           | int (`-1` = all cores)              | `min(6, cores - 2)` | 2, 4   |
@@ -158,6 +159,36 @@ train/test leakage, but the per-instance leak is *inside* one instance: the
 contaminated divisor and the window it divides always land on the same side of
 any split. Only choosing a reference that never saw the fault period removes
 it.
+
+`--frozen-sensors` decides what happens to a sensor that never moves. `P-TPT`
+reads exactly 0 for 100 % of the samples of wells 35, 36 and 40 and of every
+hand-drawn instance, and sits at a constant 817 bar for well 29. Every
+dispersion statistic of such a window is then exactly zero — crisp and highly
+predictive — so the trees split on it at the root: report 2 §6 found *every*
+top split of the z-scored instance tree to be a test of whether some standard
+deviation is zero. The model was reading instrument status and calling it flow
+physics. Like the normalization reference, the remedy is chosen per run,
+because the window's own standard deviation is already in the parquet:
+
+| value | what it does |
+| --- | --- |
+| `flag` (default) | Blanks **all eleven** statistics of the frozen sensor for that window — the per-fold imputer fills them like any other missing reading — and adds an explicit `<sensor>_frozen` indicator. Instrument status still reaches the model, through one feature that says so. |
+| `keep` | Leaves the degenerate zeros. The behaviour before this switch, kept so earlier results stay reproducible. |
+| `drop` | Discards whole instances whose `P-TPT` never moves, and changes nothing else. |
+
+`flag` blanks the level statistics too, not only the dispersion ones: `mean`,
+`min`, `max` and `median` of a frozen sensor all equal the value it is stuck
+at — 0 for wells 35, 36 and 40 — so leaving them would simply move the
+shortcut rather than remove it. This follows the 3W Toolkit's `CleanSignals`,
+which likewise blanks a frozen signal's whole column for the event it is frozen
+in; its IQR bound fitted across events is deliberately *not* reproduced, since
+the physical bounds above already reject out-of-range readings and fitting a
+bound over the whole dataset before splitting is the contamination
+`--normalization` just removed.
+
+`flag` and `drop` are the two remedies the TODO item proposed, kept as
+alternatives rather than combined, so each differs from `keep` in exactly one
+way and a report can attribute the difference.
 
 `--allow-overlap` keeps the real instances that overlap another recording of
 the same well in time. Stage 1 drops them by default: 3W instances are
@@ -511,6 +542,7 @@ uv run scripts/audits/normalization_leakage_auditing.py
 │   ├── config.py             paths · sensors · class maps · constants
 │   ├── preprocessing.py      loading · cleaning
 │   ├── normalization.py      load-time z-scoring against a chosen reference
+│   ├── sensor_health.py      frozen-sensor detection · blanking · indicators
 │   ├── features.py           windowing · 88 features · labeling
 │   ├── train_val_test.py     task datasets · pipelines · CV search · holdout / nested / leave-one-out evaluation · split composition
 │   ├── evaluation.py         metrics · per-group sheet · confusion matrix
@@ -566,7 +598,10 @@ uv run scripts/audits/normalization_leakage_auditing.py
   well is also scored on its own.
 - **Imputation inside the model pipeline** (`SimpleImputer(median)`), so it is
   refit per fold, avoiding leakage. This replaces the two divergent imputation
-  strategies of the original repo.
+  strategies of the original repo. It runs with `keep_empty_features=True`, so
+  a column that is missing for every training row stays (filled with zeros,
+  therefore constant and never split on) instead of being dropped, which would
+  leave the classifier with fewer inputs than the feature names describing it.
 - **Balanced classes**: RF and the single decision tree via
   `class_weight="balanced"`; XGBoost via sample weights computed **per training
   fold** (the original computed them globally).

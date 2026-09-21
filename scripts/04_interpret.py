@@ -18,7 +18,8 @@ Usage
                                    [--class-grouping {standard,hydrate,custom}]
                                    [--eval {holdout,nested,leave-one-out}]
                                    [--cv-group {instance_id,well_id}]
-                                   [--skip-permutation] [--normalization {none,instance,normal}] [--allow-overlap]
+                                   [--skip-permutation] [--normalization {none,instance,normal}]
+                                   [--frozen-sensors {keep,flag,drop}] [--allow-overlap]
                                    [--n-jobs N]
 
 ``--eval`` only selects which stage-2 run's model to read (its tag); under
@@ -47,6 +48,7 @@ import joblib
 
 from flowml.cli import (
     add_class_grouping_arg,
+    add_frozen_sensors_arg,
     add_normalization_arg,
     add_run_arg,
     run_parser,
@@ -71,6 +73,7 @@ def main() -> None:
     parser = run_parser(__doc__.splitlines()[0])
     add_class_grouping_arg(parser)
     add_normalization_arg(parser)
+    add_frozen_sensors_arg(parser)
     add_run_arg(parser)
     parser.add_argument(
         "--skip-permutation",
@@ -84,6 +87,7 @@ def main() -> None:
         args.model,
         args.task,
         args.normalization,
+        args.frozen_mode,
         args.cv_group,
         args.eval,
         args.allow_overlap,
@@ -109,6 +113,7 @@ def main() -> None:
     data = load_task_data(
         args.task,
         args.normalization,
+        args.frozen_mode,
         args.cv_group,
         args.allow_overlap,
         args.keep_extreme_values,

@@ -34,7 +34,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from flowml.cli import add_class_grouping_arg, add_normalization_arg, run_parser
+from flowml.cli import (
+    add_class_grouping_arg,
+    add_frozen_sensors_arg,
+    add_normalization_arg,
+    run_parser,
+)
 from flowml.config import (
     CV_GROUPINGS,
     EVAL_MODES,
@@ -77,7 +82,12 @@ class Tee:
 def audit_grouping(task: str, normalization: str, cv_group: str, eval_mode: str, args) -> None:
     """Print the split composition of one CV grouping under one protocol."""
     data = load_task_data(
-        task, normalization, cv_group, args.allow_overlap, args.keep_extreme_values
+        task,
+        normalization,
+        args.frozen_mode,
+        cv_group,
+        args.allow_overlap,
+        args.keep_extreme_values,
     )
     print(f"\n{'=' * 100}")
     print(f"CV grouping: {cv_group} | evaluation: {eval_mode}")
@@ -146,6 +156,7 @@ def main() -> None:
     """Parse the shared switches and audit the requested groupings."""
     parser = run_parser(__doc__.splitlines()[0], with_model=False)
     add_normalization_arg(parser)
+    add_frozen_sensors_arg(parser)
     add_class_grouping_arg(parser)
     parser.add_argument("--task", choices=TASKS, default="prediction", help="(default: prediction)")
     parser.add_argument(

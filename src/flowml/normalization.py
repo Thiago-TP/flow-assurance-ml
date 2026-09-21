@@ -57,6 +57,7 @@ from flowml.config import (
     REF_COL_PREFIX,
     SCALE_STATS,
     ref_col,
+    sensors_with_features,
 )
 
 
@@ -78,7 +79,18 @@ def reference_columns(frame: pd.DataFrame) -> list[str]:
 
 
 def normalized_sensors(frame: pd.DataFrame, reference: str) -> list[str]:
-    """Sensors for which the frame carries the statistics of one reference.
+    """Sensors this frame can actually be z-scored against one reference.
+
+    A sensor qualifies only when the frame carries everything
+    ``_normalize_sensor`` will read: both stored statistics of the reference,
+    *and* a complete set of window features. Stripping the
+    ``ref__<sensor>_mean_<reference>`` name is not enough on its own — sensor
+    names are free text, so a suffix match is an assumption about which names
+    happen not to collide rather than a fact about the frame. It is the
+    assumption that broke ``sensor_health.featured_sensors``, where ``_std``
+    also matched ``diff1_std`` and invented a sensor called ``P-TPT_diff1``.
+    Verifying the columns instead makes ``normalize_features`` total: every
+    sensor it is handed can be transformed completely.
 
     Parameters
     ----------
@@ -93,11 +105,14 @@ def normalized_sensors(frame: pd.DataFrame, reference: str) -> list[str]:
         Sensor names, in column order.
     """
     prefix, suffix = REF_COL_PREFIX, f"_mean_{reference}"
-    return [
+    named = [
         c[len(prefix) : -len(suffix)]
         for c in frame.columns
         if c.startswith(prefix) and c.endswith(suffix)
     ]
+    complete = set(sensors_with_features(frame.columns))
+    present = set(frame.columns)
+    return [s for s in named if s in complete and ref_col(s, "std", reference) in present]
 
 
 def normalize_features(frame: pd.DataFrame, normalization: str) -> pd.DataFrame:

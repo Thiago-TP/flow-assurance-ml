@@ -47,6 +47,7 @@ Usage
                                        [--class-grouping {standard,hydrate,custom}]
                                        [--eval {holdout,nested,leave-one-out}]
                                        [--cv-group {instance_id,well_id}] [--normalization {none,instance,normal}]
+                                       [--frozen-sensors {keep,flag,drop}]
                                        [--allow-overlap] [--top-n N]
                                        [--depths 2,3,4,5,6,7,8,9,10,11,12]
 
@@ -87,6 +88,7 @@ from sklearn.tree import DecisionTreeClassifier
 
 from flowml.cli import (
     add_class_grouping_arg,
+    add_frozen_sensors_arg,
     add_normalization_arg,
     add_run_arg,
     eval_suffix,
@@ -99,6 +101,7 @@ from flowml.config import (
     N_SPLITS_CV,
     RANDOM_STATE,
     extreme_suffix,
+    frozen_suffix,
     norm_suffix,
     overlap_suffix,
 )
@@ -169,7 +172,10 @@ def make_tree_pipeline(max_depth: int) -> Pipeline:
     """
     return Pipeline(
         [
-            ("imputer", SimpleImputer(strategy="median")),
+            # keep_empty_features for the same reason as stage 2: a column that
+            # is NaN throughout must stay, or the tree ends up with fewer
+            # inputs than the feature names describing it.
+            ("imputer", SimpleImputer(strategy="median", keep_empty_features=True)),
             (
                 "clf",
                 DecisionTreeClassifier(
@@ -491,6 +497,7 @@ def main() -> None:
     parser = run_parser(__doc__.splitlines()[0])
     add_class_grouping_arg(parser)
     add_normalization_arg(parser)
+    add_frozen_sensors_arg(parser)
     add_run_arg(parser)
     parser.add_argument(
         "--top-n",
@@ -512,6 +519,7 @@ def main() -> None:
         args.model,
         args.task,
         args.normalization,
+        args.frozen_mode,
         args.cv_group,
         args.eval,
         args.allow_overlap,
@@ -520,7 +528,8 @@ def main() -> None:
     tag = run_tag(*common, args.class_grouping)
     standard_tag = run_tag(*common, "standard")
     dtag = (
-        f"dt_{args.task}{norm_suffix(args.normalization)}{overlap_suffix(args.allow_overlap)}"
+        f"dt_{args.task}{norm_suffix(args.normalization)}{frozen_suffix(args.frozen_mode)}"
+        f"{overlap_suffix(args.allow_overlap)}"
         f"{extreme_suffix(args.keep_extreme_values)}_from_{args.model}"
     )
     if args.cv_group == "well_id":
@@ -541,6 +550,7 @@ def main() -> None:
     data = load_task_data(
         args.task,
         args.normalization,
+        args.frozen_mode,
         args.cv_group,
         args.allow_overlap,
         args.keep_extreme_values,

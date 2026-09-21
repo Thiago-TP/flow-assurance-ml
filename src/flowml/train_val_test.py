@@ -57,6 +57,7 @@ from flowml.config import (
     CV_GROUPINGS,
     DT_PARAM_GRID,
     FAULT_CLASSES,
+    FROZEN_MODE,
     HYDRATE_CLASS_GROUPING,
     META_COLS,
     N_ITER_SEARCH,
@@ -72,6 +73,7 @@ from flowml.config import (
     features_path,
 )
 from flowml.normalization import normalize_features, reference_columns
+from flowml.sensor_health import apply_frozen_policy, frozen_report
 
 TASKS = ("prediction", "detection")
 MODEL_TYPES = ("rf", "xgb", "dt")
@@ -218,6 +220,7 @@ class TaskData:
 def load_task_data(
     task: str,
     normalization: str = NORMALIZATION,
+    frozen_mode: str = FROZEN_MODE,
     cv_group: str = CV_GROUPING,
     allow_overlap: bool = False,
     keep_extreme_values: bool = False,
@@ -233,6 +236,11 @@ def load_task_data(
         Reference the window features are z-scored against once loaded:
         ``"none"`` (default), ``"instance"`` or ``"normal"``. The parquet is
         the same for all three; see the ``normalization`` module.
+    frozen_mode : str
+        What to do about sensors that never move: ``"keep"`` their degenerate
+        zeros, ``"flag"`` them as missing plus an explicit indicator
+        (default), or ``"drop"`` the instances whose critical sensor is dead.
+        See the ``sensor_health`` module.
     cv_group : str
         Metadata column used as the grouping key of every split:
         ``"instance_id"`` (default) keeps windows of one recording together;
@@ -293,6 +301,17 @@ def load_task_data(
 
     # Applied after the row filtering, so only the modeled windows are scaled.
     df = normalize_features(df, normalization)
+    # The frozen-sensor policy comes last, so that the statistics it blanks are
+    # the ones the model would actually have seen. `drop` removes rows, so the
+    # labels are re-read from the survivors rather than carried over.
+    report = frozen_report(df, frozen_mode)
+    df = apply_frozen_policy(df, frozen_mode)
+    if report:
+        print(report)
+    if frozen_mode == "drop":
+        fine_y = df[label_col].to_numpy()
+        y = fine_y if class_grouping == "standard" else group_labels(fine_y, class_grouping)
+
     excluded = set(META_COLS) | set(reference_columns(df))
     feature_cols = [c for c in df.columns if c not in excluded]
     return TaskData(
@@ -351,7 +370,20 @@ def make_pipeline(model_type: str, n_jobs: int = N_JOBS) -> tuple[Pipeline, dict
     else:
         raise ValueError(f"Unknown model type: {model_type!r} (expected {MODEL_TYPES})")
 
-    pipe = Pipeline([("imputer", SimpleImputer(strategy="median")), ("clf", clf)])
+    # ``keep_empty_features`` keeps a column that is NaN for every training row
+    # instead of silently dropping it, which would leave the classifier with
+    # fewer inputs than ``TaskData.feature_cols`` names and misalign every
+    # downstream ranking, rule export and tree drawing. It arises whenever a
+    # sensor is frozen across the whole training set and ``--frozen-sensors
+    # flag`` blanks it (see the ``sensor_health`` module). The kept column is
+    # filled with zeros, so it is constant, carries no information gain and is
+    # never split on.
+    pipe = Pipeline(
+        [
+            ("imputer", SimpleImputer(strategy="median", keep_empty_features=True)),
+            ("clf", clf),
+        ]
+    )
     return pipe, grid
 
 

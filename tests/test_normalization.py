@@ -137,6 +137,33 @@ def test_stage_one_stores_both_references_for_every_sensor():
     assert len(reference_columns(frame)) == len(SENSORS) * 2 * 2
 
 
+def test_a_reference_column_without_its_pair_does_not_name_a_sensor():
+    # ref__<sensor>_mean_<reference> alone is not enough: _normalize_sensor
+    # reads the standard deviation too, so a half-written frame must not
+    # advertise the sensor as normalizable.
+    frame = built(synthetic_instance()).drop(columns=[ref_col("T-TPT", "std", "instance")])
+
+    assert normalized_sensors(frame, "instance") == ["P-TPT"]
+
+
+def test_a_reference_without_window_features_does_not_name_a_sensor():
+    # The mirror of the bug that bit `featured_sensors`: the reference columns
+    # are not evidence that the eleven statistics the transform rewrites exist.
+    frame = built(synthetic_instance()).drop(columns=["T-TPT_diff2_std"])
+
+    assert normalized_sensors(frame, "instance") == ["P-TPT"]
+
+
+def test_a_sensor_named_after_a_statistic_is_still_resolved_correctly():
+    # Sensor names are free text, so nothing stops one from ending in a
+    # statistic name; the suffix arithmetic must not mis-split it.
+    frame = built(synthetic_instance()).rename(
+        columns=lambda c: c.replace("T-TPT", "T-TPT_mean") if "T-TPT" in c else c
+    )
+
+    assert normalized_sensors(frame, "instance") == ["P-TPT", "T-TPT_mean"]
+
+
 def test_the_normal_reference_ignores_the_fault_period():
     frame = synthetic_instance()
     stats = reference_statistics(frame, ["P-TPT"])

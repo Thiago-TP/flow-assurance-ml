@@ -13,6 +13,7 @@ Usage
                    [--class-grouping {standard,hydrate,custom}]
                    [--eval {holdout,nested,leave-one-out}]
                    [--cv-group {instance_id,well_id}] [--normalization {none,instance,normal}]
+                   [--frozen-sensors {keep,flag,drop}]
                    [--allow-overlap] [--keep-extreme-values] [--n-jobs N]
                    [--max-instances N] [--rebuild-features] [--verbose]
                    [--skip-permutation] [--top-n N] [--depths 2,3,4,5,6,7,8,9,10,11,12]
@@ -48,7 +49,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-from flowml.cli import add_class_grouping_arg, add_normalization_arg, add_run_arg, run_parser
+from flowml.cli import (
+    add_class_grouping_arg,
+    add_frozen_sensors_arg,
+    add_normalization_arg,
+    add_run_arg,
+    run_parser,
+)
 from flowml.config import features_path
 from flowml.runs import RUN_DIR_ENV, resolve_run
 from flowml.train_val_test import WHITE_BOX_MODELS
@@ -77,6 +84,7 @@ def main() -> None:
     parser = run_parser(__doc__.splitlines()[0])
     add_class_grouping_arg(parser)
     add_normalization_arg(parser)
+    add_frozen_sensors_arg(parser)
     add_run_arg(parser)
     parser.add_argument(
         "--max-instances",
@@ -126,6 +134,8 @@ def main() -> None:
         *common,
         "--normalization",
         args.normalization,
+        "--frozen-sensors",
+        args.frozen_mode,
         "--model",
         args.model,
         "--task",

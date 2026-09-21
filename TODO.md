@@ -214,12 +214,36 @@ Each is tagged **feature**, **documentational** or **bugfix**.
   same instance and never separate under a split — and why only a reference that never saw the fault
   period does. Still open: re-making report 2 with the three references, which is the point of the
   restructure.)
-- [ ] **10 · feature** — Decide what to do about frozen sensors, now that they sit at the root of
+- [X] **10 · feature** — Decide what to do about frozen sensors, now that they sit at the root of
   the z-scored trees ("is this standard deviation exactly zero?"). `sensor_distributions_auditing.py`
   shows `P-TPT` frozen at exactly 0 for 100 % of the readings of wells 35, 36 and 40 and of every
   hand-drawn instance, and constant at 817 bar for well 29. Either drop instances whose critical
   sensors never move, or add an explicit sensor-health feature so the model states that it is using
   instrument status instead of smuggling it through a dispersion statistic.
+  (Done: both remedies implemented as alternatives behind `--frozen-sensors {flag,keep,drop}`,
+  applied at load time like `--normalization`, since the window's own standard deviation is already
+  in the parquet and no rebuild is needed. `flag` (the new default) blanks **all eleven** statistics
+  of a frozen sensor's window — not only the dispersion ones, since `mean`/`min`/`max`/`median` all
+  equal the stuck value and would simply carry the shortcut instead — lets the per-fold imputer fill
+  them, and adds an explicit `<sensor>_frozen` indicator, so 88 features become 96. `keep` is the
+  previous behaviour, kept as the baseline; `drop` discards instances whose `P-TPT` never moves.
+  Frozen is a property of the *window*, evaluated on the raw standard deviation against a new
+  `FROZEN_STD_THRESHOLD = 1e-6` (the 3W Toolkit's `CleanSignals.absolute_std_threshold`); deciding
+  it from the whole recording would let the fault period set the flag of a normal-operation window,
+  which is the item-9 mistake. The toolkit's IQR bound fitted across events is deliberately not
+  reproduced — the existing physical bounds already reject out-of-range readings, and fitting before
+  the split reintroduces contamination. New module `flowml/sensor_health.py` + 16 tests. Verified on
+  a 3-instance-per-class sample: the exported tree's **root split moved from a dispersion statistic
+  to `QGL_frozen`**, which is exactly what the item asked for.
+  Also fixed a latent bug this exposed: `SimpleImputer` silently drops all-NaN columns, so a sensor
+  frozen across the whole training set left the classifier with fewer inputs than `feature_cols`
+  named, crashing the rule export with "feature_names must contain 85 elements, got 96". Both
+  pipelines now pass `keep_empty_features=True`.
+  Observed but **not** acted on, for a later item: the flagged tree still splits on
+  `<sensor>_diff2_std <= 0.00`. That is not a frozen sensor — a window can have zero second-difference
+  dispersion while its standard deviation is nonzero, e.g. a linear ramp or a stretch the 60 s
+  forward-fill filled in. Worth deciding separately whether flat *derivatives* deserve the same
+  treatment as flat signals.)
 - [X] **6 · feature** — Audit the sensor-dropout thresholds the trees split on (`P-TPT_max <= 63 Pa`
   is a wellhead at vacuum): an audit script that plots the distribution of the pressure and
   temperature readings of every real well and compares it with the same distributions over the

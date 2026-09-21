@@ -4,11 +4,14 @@ import argparse
 
 from flowml.config import (
     CLASS_GROUPINGS,
+    CRITICAL_SENSOR,
     CV_GROUPING,
     CV_GROUPINGS,
     EVAL_MODE_DEFAULTS,
     EVAL_MODES,
     EXTREME_VALUE_LIMIT,
+    FROZEN_MODE,
+    FROZEN_MODES,
     N_JOBS,
     N_SPLITS_OUTER,
     NORMALIZATION,
@@ -17,6 +20,7 @@ from flowml.config import (
     TEST_SIZE,
     default_eval_mode,
     extreme_suffix,
+    frozen_suffix,
     norm_suffix,
     overlap_suffix,
 )
@@ -199,6 +203,36 @@ def add_normalization_arg(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_frozen_sensors_arg(parser: argparse.ArgumentParser) -> None:
+    """Add the ``--frozen-sensors`` switch to a parser that loads features.
+
+    A sensor that never moves makes every dispersion statistic of its windows
+    exactly zero, and the trees split on that at the root, reading instrument
+    status as though it were flow physics. This switch selects the remedy, at
+    load time and without a rebuild, because the window's own standard
+    deviation is already in the parquet (see the ``sensor_health`` module).
+
+    Parameters
+    ----------
+    parser : argparse.ArgumentParser
+        Parser to extend in place.
+    """
+    parser.add_argument(
+        "--frozen-sensors",
+        choices=FROZEN_MODES,
+        default=FROZEN_MODE,
+        dest="frozen_mode",
+        help=(
+            "what to do about sensors that never move: flag = blank the frozen "
+            "windows of that sensor and add an explicit <sensor>_frozen indicator, "
+            "so instrument status reaches the model through one feature that says "
+            "so (default); keep = leave the degenerate zeros, the behaviour before "
+            "this switch; drop = discard the instances whose "
+            f"{CRITICAL_SENSOR} never moves (default: {FROZEN_MODE})"
+        ),
+    )
+
+
 def add_run_arg(parser: argparse.ArgumentParser) -> None:
     """Add the ``--run`` switch selecting which run directory a stage uses.
 
@@ -259,6 +293,7 @@ def run_tag(
     model: str,
     task: str,
     normalization: str = NORMALIZATION,
+    frozen_mode: str = FROZEN_MODE,
     cv_group: str = CV_GROUPING,
     eval_mode: str = "holdout",
     allow_overlap: bool = False,
@@ -270,9 +305,10 @@ def run_tag(
     The tag covers every switch that changes what stage 2 produces: model,
     task, normalization, overlap and extreme-value rules, CV grouping,
     evaluation protocol, and the label set the model is fit on. The defaults
-    (no normalization, overlapping instances dropped, extreme readings masked,
-    instance grouping, holdout evaluation, the dataset's own classes) add no
-    suffix; a normalization reference appends its own name, keeping
+    (no normalization, frozen sensors flagged, overlapping instances dropped,
+    extreme readings masked, instance grouping, holdout evaluation, the
+    dataset's own classes) add no suffix; a normalization reference appends its
+    own name, a non-default frozen-sensor policy appends its own name, keeping
     overlapping instances appends ``_overlap``, keeping extreme readings
     ``_extremes``, well-level grouping ``_wellcv``, nested evaluation
     ``_nested``, leave-one-out evaluation ``_loo`` and a class grouping its
@@ -289,6 +325,8 @@ def run_tag(
     normalization : str
         The reference the features are z-scored against: ``"none"``,
         ``"instance"`` or ``"normal"``.
+    frozen_mode : str
+        The frozen-sensor policy: ``"flag"``, ``"keep"`` or ``"drop"``.
     cv_group : str
         ``"instance_id"`` or ``"well_id"``.
     eval_mode : str
@@ -310,7 +348,7 @@ def run_tag(
         ``"xgb_prediction_normal_overlap_extremes_wellcv_nested_custom"``.
     """
     tag = (
-        f"{model}_{task}{norm_suffix(normalization)}"
+        f"{model}_{task}{norm_suffix(normalization)}{frozen_suffix(frozen_mode)}"
         f"{overlap_suffix(allow_overlap)}{extreme_suffix(keep_extreme_values)}"
     )
     if cv_group == "well_id":

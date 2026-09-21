@@ -48,7 +48,8 @@ Usage
                                         [--class-grouping {standard,hydrate,custom}]
                                         [--eval {holdout,nested,leave-one-out}]
                                         [--cv-group {instance_id,well_id}]
-                                        [--normalization {none,instance,normal}] [--allow-overlap]
+                                        [--normalization {none,instance,normal}]
+                                        [--frozen-sensors {keep,flag,drop}] [--allow-overlap]
                                         [--n-jobs N] [--verbose]
 
 This is the stage that starts an experiment: with no ``--run`` and no
@@ -78,6 +79,7 @@ from sklearn.preprocessing import LabelEncoder
 
 from flowml.cli import (
     add_class_grouping_arg,
+    add_frozen_sensors_arg,
     add_normalization_arg,
     add_run_arg,
     run_parser,
@@ -102,12 +104,14 @@ def main() -> None:
     parser = run_parser(__doc__.splitlines()[0])
     add_class_grouping_arg(parser)
     add_normalization_arg(parser)
+    add_frozen_sensors_arg(parser)
     add_run_arg(parser)
     args = parser.parse_args()
     tag = run_tag(
         args.model,
         args.task,
         args.normalization,
+        args.frozen_mode,
         args.cv_group,
         args.eval,
         args.allow_overlap,
@@ -124,6 +128,7 @@ def main() -> None:
     data = load_task_data(
         args.task,
         args.normalization,
+        args.frozen_mode,
         args.cv_group,
         args.allow_overlap,
         args.keep_extreme_values,
@@ -210,6 +215,7 @@ def main() -> None:
         "model": args.model,
         "task": args.task,
         "normalization": args.normalization,
+        "frozen_sensors": args.frozen_mode,
         "overlapping_instances": "kept" if args.allow_overlap else "dropped",
         "extreme_values": "kept" if args.keep_extreme_values else "masked",
         "cv_group": args.cv_group,
