@@ -12,7 +12,7 @@ of each class is simulated or hand-drawn data, which the well grouping drops.
 Usage
 -----
     uv run scripts/audits/well_leakage_auditing.py [--task {prediction,detection}]
-        [--no-normalization] [--allow-overlap] [--keep-extreme-values]
+        [--normalization {none,instance,normal}] [--allow-overlap] [--keep-extreme-values]
         [--output-file PATH] [--verbose]
 
 Output
@@ -29,7 +29,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from flowml.cli import run_parser
+from flowml.cli import add_normalization_arg, run_parser
 from flowml.config import (
     FAULT_CLASSES,
     RESULTS_DIR,
@@ -59,12 +59,12 @@ class Tee:
             stream.flush()
 
 
-def audit(task: str, normalized: bool, args) -> None:
+def audit(task: str, normalization: str, args) -> None:
     """Print the source composition, the well exposure and the well concentration."""
     label_col = "fault_class" if task == "prediction" else "window_label"
     label_map = FAULT_CLASSES if task == "prediction" else WINDOW_CLASSES
 
-    df = pd.read_parquet(features_path(normalized, args.allow_overlap, args.keep_extreme_values))
+    df = pd.read_parquet(features_path(args.allow_overlap, args.keep_extreme_values))
     if task == "prediction":
         df = df[df["window_label"] == 0]
 
@@ -78,7 +78,7 @@ def audit(task: str, normalized: bool, args) -> None:
         print(f"    {source:<10} {n:>8,} ({100 * n / len(df):.1f}%)")
 
     data = load_task_data(
-        task, normalized, "instance_id", args.allow_overlap, args.keep_extreme_values
+        task, normalization, "instance_id", args.allow_overlap, args.keep_extreme_values
     )
     assert len(df) == data.n_windows, "features frame and task data disagree"
     print("\nInstance-grouped holdout split (the one stages 2 and 5 use):")
@@ -119,6 +119,7 @@ def audit(task: str, normalized: bool, args) -> None:
 def main() -> None:
     """Parse the shared switches and run the audit."""
     parser = run_parser(__doc__.splitlines()[0], with_model=False)
+    add_normalization_arg(parser)
     parser.add_argument("--task", choices=TASKS, default="prediction", help="(default: prediction)")
     parser.add_argument(
         "--output-file",
@@ -128,10 +129,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    normalized = not args.no_normalization
     stamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     out = args.output_file or AUDITS_DIR / (
-        f"well_leakage_{args.task}_{norm_suffix(normalized)}"
+        f"well_leakage_{args.task}{norm_suffix(args.normalization)}"
         f"{overlap_suffix(args.allow_overlap)}{extreme_suffix(args.keep_extreme_values)}_{stamp}.txt"
     )
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -139,10 +139,10 @@ def main() -> None:
     with open(out, "w", encoding="utf-8") as fh, contextlib.redirect_stdout(Tee(sys.stdout, fh)):
         print(f"Well leakage audit — {datetime.now().astimezone():%Y-%m-%d %H:%M:%S}")
         print(
-            f"task {args.task} | features {norm_suffix(normalized)}"
+            f"task {args.task} | normalization {args.normalization}"
             f"{overlap_suffix(args.allow_overlap)}{extreme_suffix(args.keep_extreme_values)}"
         )
-        audit(args.task, normalized, args)
+        audit(args.task, args.normalization, args)
     print(f"\nSaved: {out}")
 
 

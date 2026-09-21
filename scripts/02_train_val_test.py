@@ -48,7 +48,7 @@ Usage
                                         [--class-grouping {standard,hydrate,custom}]
                                         [--eval {holdout,nested,leave-one-out}]
                                         [--cv-group {instance_id,well_id}]
-                                        [--no-normalization] [--allow-overlap]
+                                        [--normalization {none,instance,normal}] [--allow-overlap]
                                         [--n-jobs N] [--verbose]
 
 This is the stage that starts an experiment: with no ``--run`` and no
@@ -76,11 +76,14 @@ import joblib
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 
-from flowml.cli import add_class_grouping_arg, add_run_arg, run_parser, run_tag
-from flowml.config import (
-    N_SPLITS_CV,
-    norm_suffix,
+from flowml.cli import (
+    add_class_grouping_arg,
+    add_normalization_arg,
+    add_run_arg,
+    run_parser,
+    run_tag,
 )
+from flowml.config import N_SPLITS_CV
 from flowml.evaluation import global_metrics
 from flowml.interpretation import export_tree
 from flowml.runs import append_index, record_stage, resolve_run
@@ -98,13 +101,13 @@ def main() -> None:
     """Parse arguments, run the evaluation protocol, and write the artifacts."""
     parser = run_parser(__doc__.splitlines()[0])
     add_class_grouping_arg(parser)
+    add_normalization_arg(parser)
     add_run_arg(parser)
     args = parser.parse_args()
-    normalized = not args.no_normalization
     tag = run_tag(
         args.model,
         args.task,
-        normalized,
+        args.normalization,
         args.cv_group,
         args.eval,
         args.allow_overlap,
@@ -120,7 +123,7 @@ def main() -> None:
     print("\n[1/3] Loading dataset...")
     data = load_task_data(
         args.task,
-        normalized,
+        args.normalization,
         args.cv_group,
         args.allow_overlap,
         args.keep_extreme_values,
@@ -206,7 +209,7 @@ def main() -> None:
         "tag": tag,
         "model": args.model,
         "task": args.task,
-        "normalization": norm_suffix(normalized),
+        "normalization": args.normalization,
         "overlapping_instances": "kept" if args.allow_overlap else "dropped",
         "extreme_values": "kept" if args.keep_extreme_values else "masked",
         "cv_group": args.cv_group,

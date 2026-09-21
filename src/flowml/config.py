@@ -37,20 +37,82 @@ WELL_HISTORY_FIGURES_DIR = VISUALIZATION_DIR / "well_histories"
 SIGNATURE_FIGURES_DIR = VISUALIZATION_DIR / "fault_signatures"
 
 
-def norm_suffix(normalized: bool) -> str:
-    """Artifact-name suffix for the normalization status of the features.
+# -- Normalization ------------------------------------------------------------
+
+# The reference a window's features are z-scored against, chosen per run
+# rather than baked into the features parquet (see the ``normalization``
+# module). Stage 1 always builds raw features and stores the statistics of
+# every reference beside them, so switching costs a training run, not a
+# dataset rebuild.
+#
+# ``none``      the raw features, unscaled. The default: for the axis-aligned
+#               tree models here, per-column scaling is a no-op, and the only
+#               scaling that does change the matrix — per instance — is the
+#               one that leaks.
+# ``instance``  mean and standard deviation over the whole recording. This is
+#               what the pipeline used to do at build time, kept so the old
+#               results stay reproducible; it is also the leak, since the
+#               divisor of a normal-operation window encodes how badly the
+#               well later failed (TODO item 9).
+# ``normal``    the same statistics over the instance's normal-operation
+#               samples only. Leak-free with respect to the fault period, and
+#               the honest choice for the detection task; for prediction it is
+#               close to circular, since every modeled window is already a
+#               normal-operation one.
+NORMALIZATIONS = ("none", "instance", "normal")
+NORMALIZATION = "none"
+NORMALIZATION_REFERENCES = tuple(n for n in NORMALIZATIONS if n != "none")
+
+# Columns holding those statistics. They live in the features parquet beside
+# the window features and are never fed to a model.
+REF_COL_PREFIX = "ref__"
+
+
+def ref_col(sensor: str, stat: str, reference: str) -> str:
+    """Name of the column holding one reference statistic of one sensor.
 
     Parameters
     ----------
-    normalized : bool
-        Whether the features were built from per-instance z-scored sensors.
+    sensor : str
+        Sensor name, e.g. ``"P-TPT"``.
+    stat : str
+        ``"mean"`` or ``"std"``.
+    reference : str
+        One of ``NORMALIZATION_REFERENCES``.
 
     Returns
     -------
     str
-        ``"zscore"`` or ``"raw"``.
+        E.g. ``"ref__P-TPT_mean_instance"``.
     """
-    return "zscore" if normalized else "raw"
+    return f"{REF_COL_PREFIX}{sensor}_{stat}_{reference}"
+
+
+# How each of ``FEATURE_STATS`` behaves when its sensor is z-scored by the
+# reference (mu, sigma). Together these three groups plus ``max_zscore`` cover
+# all eleven, which is what lets the z-scored features be derived exactly from
+# the raw ones instead of rebuilt from the raw signals.
+LOCATION_SCALE_STATS = ("mean", "min", "max", "median")  # (v - mu) / sigma
+SCALE_STATS = ("std", "iqr", "diff1_std", "diff2_std")  # v / sigma
+INVARIANT_STATS = ("skewness", "kurtosis")  # unchanged by an affine map
+
+
+def norm_suffix(normalization: str) -> str:
+    """Artifact-name suffix for the normalization a run uses.
+
+    Parameters
+    ----------
+    normalization : str
+        One of ``NORMALIZATIONS``.
+
+    Returns
+    -------
+    str
+        ``""`` for ``"none"``, ``"_<name>"`` otherwise.
+    """
+    if normalization not in NORMALIZATIONS:
+        raise ValueError(f"Unknown normalization: {normalization!r} (expected {NORMALIZATIONS})")
+    return "" if normalization == "none" else f"_{normalization}"
 
 
 def overlap_suffix(allow_overlap: bool) -> str:
@@ -87,15 +149,16 @@ def extreme_suffix(keep_extreme_values: bool) -> str:
     return "_extremes" if keep_extreme_values else ""
 
 
-def features_path(
-    normalized: bool = True, allow_overlap: bool = False, keep_extreme_values: bool = False
-) -> Path:
-    """Features parquet path for the given normalization, overlap and extreme rules.
+def features_path(allow_overlap: bool = False, keep_extreme_values: bool = False) -> Path:
+    """Features parquet path for the given overlap and extreme-value rules.
+
+    Normalization is no longer part of the name: the parquet holds the raw
+    features plus the statistics of every reference, and a run picks one at
+    load time (see the ``normalization`` module). Only the two rules that
+    change *which rows and readings exist* still produce separate datasets.
 
     Parameters
     ----------
-    normalized : bool
-        Whether the features were built from per-instance z-scored sensors.
     allow_overlap : bool
         Whether overlapping real instances were kept when building them.
     keep_extreme_values : bool
@@ -104,14 +167,12 @@ def features_path(
     Returns
     -------
     Path
-        ``data/features_zscore.parquet`` by default; ``raw`` replaces
-        ``zscore`` without normalization, ``_overlap`` is appended when
+        ``data/features.parquet`` by default; ``_overlap`` is appended when
         overlapping instances were kept and ``_extremes`` when extreme
-        readings were, e.g. ``features_raw_overlap_extremes.parquet``.
+        readings were, e.g. ``features_overlap_extremes.parquet``.
     """
     return DATA_DIR / (
-        f"features_{norm_suffix(normalized)}"
-        f"{overlap_suffix(allow_overlap)}{extreme_suffix(keep_extreme_values)}.parquet"
+        f"features{overlap_suffix(allow_overlap)}{extreme_suffix(keep_extreme_values)}.parquet"
     )
 
 

@@ -12,7 +12,7 @@ Usage
     uv run main.py [--model {rf,xgb,dt}] [--task {prediction,detection}]
                    [--class-grouping {standard,hydrate,custom}]
                    [--eval {holdout,nested,leave-one-out}]
-                   [--cv-group {instance_id,well_id}] [--no-normalization]
+                   [--cv-group {instance_id,well_id}] [--normalization {none,instance,normal}]
                    [--allow-overlap] [--keep-extreme-values] [--n-jobs N]
                    [--max-instances N] [--rebuild-features] [--verbose]
                    [--skip-permutation] [--top-n N] [--depths 2,3,4,5,6,7,8,9,10,11,12]
@@ -48,7 +48,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from flowml.cli import add_class_grouping_arg, add_run_arg, run_parser
+from flowml.cli import add_class_grouping_arg, add_normalization_arg, add_run_arg, run_parser
 from flowml.config import features_path
 from flowml.runs import RUN_DIR_ENV, resolve_run
 from flowml.train_val_test import WHITE_BOX_MODELS
@@ -76,6 +76,7 @@ def main() -> None:
     """Parse the shared switches and run every stage in order."""
     parser = run_parser(__doc__.splitlines()[0])
     add_class_grouping_arg(parser)
+    add_normalization_arg(parser)
     add_run_arg(parser)
     parser.add_argument(
         "--max-instances",
@@ -114,15 +115,17 @@ def main() -> None:
     os.environ[RUN_DIR_ENV] = str(run.path)
 
     common = ["--verbose"] if args.verbose else []
-    if args.no_normalization:
-        common.append("--no-normalization")
     if args.allow_overlap:
         common.append("--allow-overlap")
     if args.keep_extreme_values:
         common.append("--keep-extreme-values")
     common += ["--n-jobs", str(args.n_jobs)]
+    # Stage 1 has no normalization choice: the parquet it writes is raw, and
+    # the reference is picked by the stages that load it.
     modeled = [
         *common,
+        "--normalization",
+        args.normalization,
         "--model",
         args.model,
         "--task",
@@ -133,7 +136,7 @@ def main() -> None:
         args.eval,
     ]
 
-    parquet = features_path(not args.no_normalization, args.allow_overlap, args.keep_extreme_values)
+    parquet = features_path(args.allow_overlap, args.keep_extreme_values)
     if parquet.exists() and not args.rebuild_features:
         print(f"Stage 1 skipped: {parquet} already exists (use --rebuild-features).")
     else:

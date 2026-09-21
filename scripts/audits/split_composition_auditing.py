@@ -17,7 +17,7 @@ Usage
 -----
     uv run scripts/audits/split_composition_auditing.py [--task {prediction,detection}]
         [--cv-group {instance_id,well_id,both}] [--eval {holdout,nested,leave-one-out}]
-        [--class-grouping {standard,hydrate,custom}] [--no-normalization] [--allow-overlap]
+        [--class-grouping {standard,hydrate,custom}] [--normalization {none,instance,normal}] [--allow-overlap]
         [--keep-extreme-values] [--output-file PATH] [--verbose]
 
 Output
@@ -34,7 +34,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from flowml.cli import add_class_grouping_arg, run_parser
+from flowml.cli import add_class_grouping_arg, add_normalization_arg, run_parser
 from flowml.config import (
     CV_GROUPINGS,
     EVAL_MODES,
@@ -74,9 +74,11 @@ class Tee:
             stream.flush()
 
 
-def audit_grouping(task: str, normalized: bool, cv_group: str, eval_mode: str, args) -> None:
+def audit_grouping(task: str, normalization: str, cv_group: str, eval_mode: str, args) -> None:
     """Print the split composition of one CV grouping under one protocol."""
-    data = load_task_data(task, normalized, cv_group, args.allow_overlap, args.keep_extreme_values)
+    data = load_task_data(
+        task, normalization, cv_group, args.allow_overlap, args.keep_extreme_values
+    )
     print(f"\n{'=' * 100}")
     print(f"CV grouping: {cv_group} | evaluation: {eval_mode}")
     print(
@@ -143,6 +145,7 @@ def audit_grouping(task: str, normalized: bool, cv_group: str, eval_mode: str, a
 def main() -> None:
     """Parse the shared switches and audit the requested groupings."""
     parser = run_parser(__doc__.splitlines()[0], with_model=False)
+    add_normalization_arg(parser)
     add_class_grouping_arg(parser)
     parser.add_argument("--task", choices=TASKS, default="prediction", help="(default: prediction)")
     parser.add_argument(
@@ -165,10 +168,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    normalized = not args.no_normalization
     stamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     out = args.output_file or AUDITS_DIR / (
-        f"split_composition_{args.task}_{norm_suffix(normalized)}"
+        f"split_composition_{args.task}{norm_suffix(args.normalization)}"
         f"{overlap_suffix(args.allow_overlap)}{extreme_suffix(args.keep_extreme_values)}_{stamp}.txt"
     )
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -177,13 +179,17 @@ def main() -> None:
     with open(out, "w", encoding="utf-8") as fh, contextlib.redirect_stdout(Tee(sys.stdout, fh)):
         print(f"Split composition audit — {datetime.now().astimezone():%Y-%m-%d %H:%M:%S}")
         print(
-            f"task {args.task} | features {norm_suffix(normalized)}"
+            f"task {args.task} | normalization {args.normalization}"
             f"{overlap_suffix(args.allow_overlap)}{extreme_suffix(args.keep_extreme_values)} "
             f"| class grouping {args.class_grouping}"
         )
         for cv_group in groupings:
             audit_grouping(
-                args.task, normalized, cv_group, args.eval or default_eval_mode(cv_group), args
+                args.task,
+                args.normalization,
+                cv_group,
+                args.eval or default_eval_mode(cv_group),
+                args,
             )
     print(f"\nSaved: {out}")
 

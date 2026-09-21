@@ -63,6 +63,7 @@ from flowml.config import (
     N_JOBS,
     N_SPLITS_CV,
     N_SPLITS_OUTER,
+    NORMALIZATION,
     RANDOM_STATE,
     RF_PARAM_GRID,
     TEST_SIZE,
@@ -70,6 +71,7 @@ from flowml.config import (
     XGB_PARAM_GRID,
     features_path,
 )
+from flowml.normalization import normalize_features, reference_columns
 
 TASKS = ("prediction", "detection")
 MODEL_TYPES = ("rf", "xgb", "dt")
@@ -215,7 +217,7 @@ class TaskData:
 
 def load_task_data(
     task: str,
-    normalized: bool = True,
+    normalization: str = NORMALIZATION,
     cv_group: str = CV_GROUPING,
     allow_overlap: bool = False,
     keep_extreme_values: bool = False,
@@ -227,9 +229,10 @@ def load_task_data(
     ----------
     task : str
         ``"prediction"`` or ``"detection"``.
-    normalized : bool
-        Load the features built from per-instance z-scored sensors (default)
-        or the raw ones.
+    normalization : str
+        Reference the window features are z-scored against once loaded:
+        ``"none"`` (default), ``"instance"`` or ``"normal"``. The parquet is
+        the same for all three; see the ``normalization`` module.
     cv_group : str
         Metadata column used as the grouping key of every split:
         ``"instance_id"`` (default) keeps windows of one recording together;
@@ -257,12 +260,10 @@ def load_task_data(
     """
     if cv_group not in CV_GROUPINGS:
         raise ValueError(f"Unknown cv_group: {cv_group!r} (expected {CV_GROUPINGS})")
-    path = features_path(normalized, allow_overlap, keep_extreme_values)
+    path = features_path(allow_overlap, keep_extreme_values)
     if not path.exists():
-        flags = (
-            ("" if normalized else " --no-normalization")
-            + (" --allow-overlap" if allow_overlap else "")
-            + (" --keep-extreme-values" if keep_extreme_values else "")
+        flags = (" --allow-overlap" if allow_overlap else "") + (
+            " --keep-extreme-values" if keep_extreme_values else ""
         )
         raise FileNotFoundError(
             f"{path} not found. Build it first:\n  uv run scripts/01_build_features.py{flags}"
@@ -290,7 +291,10 @@ def load_task_data(
     else:
         y, label_map = group_labels(fine_y, class_grouping), grouping_label_map(class_grouping)
 
-    feature_cols = [c for c in df.columns if c not in META_COLS]
+    # Applied after the row filtering, so only the modeled windows are scaled.
+    df = normalize_features(df, normalization)
+    excluded = set(META_COLS) | set(reference_columns(df))
+    feature_cols = [c for c in df.columns if c not in excluded]
     return TaskData(
         X=df[feature_cols].to_numpy(),
         y=y,

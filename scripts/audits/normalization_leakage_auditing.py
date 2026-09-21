@@ -1,12 +1,14 @@
 """Audit — does per-instance z-scoring leak the coming fault into normal-operation windows?
 
 The prediction task learns from windows of *normal operation only* and asks
-which fault the instance later develops. Its features, unless
-``--no-normalization`` is given, are z-scores: stage 1 calls
-``preprocessing.normalize_instance`` on the whole cleaned instance, so each
-sensor is centred and scaled by the mean and standard deviation of the
-**entire recording — the fault period included** — and only afterwards are the
-windows cut and the faulty ones dropped.
+which fault the instance later develops. Under ``--normalization instance``
+its features are z-scores against the statistics of the **entire recording —
+the fault period included** — so a normal-operation window is scaled by a
+number the later fault helped produce. That was the pipeline's only behaviour
+until TODO item 9; it is now one of three references a run can choose, kept so
+the earlier results stay reproducible and so this audit still has something to
+measure. The leak-free alternative this audit compares it against is the
+``normal`` reference, over the normal-operation samples only.
 
 A normal window's features therefore depend on what happens after it. If the
 scale of the later fault differs by fault class — a hydrate plug moves the

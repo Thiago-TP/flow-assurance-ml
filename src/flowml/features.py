@@ -33,44 +33,44 @@ from flowml.config import (
     FEATURE_STATS,
     KEY_SENSORS,
     MIN_VALID_SAMPLES,
+    NORMALIZATION_REFERENCES,
     OPENING_MIN,
     PRESSURE_MIN,
     RAW_DATA_DIR,
     STEP_SIZE,
     TEMPERATURE_LIMITS,
     WINDOW_SIZE,
+    ref_col,
 )
 from flowml.preprocessing import (
     clean_instance,
     list_raw_instances,
     load_raw_instances,
     mask_extreme_values,
-    normalize_instance,
     select_instances,
 )
 
 
-def window_features(window: np.ndarray, sensor: str, normalized: bool = True) -> dict:
-    """Compute the 11 statistical features of one window of one sensor.
+def window_features(window: np.ndarray, sensor: str) -> dict:
+    """Compute the 11 statistical features of one raw window of one sensor.
 
     Outliers are deliberately preserved: pressure spikes are a fault signature,
-    not noise, and are captured by ``max_zscore``. On per-instance z-scored
-    data the values already are z-scores relative to the instance baseline, so
-    ``max_zscore`` is simply the largest absolute value — the window is never
-    re-normalized. Only on raw data is the z-score computed within the window
+    not noise, and are captured by ``max_zscore``, computed within the window
     itself. A constant window (stuck or switched-off sensor) gets skewness and
     kurtosis of exactly 0 instead of the NaN scipy would produce through
     catastrophic cancellation.
 
+    The window is always raw here. Z-scoring a sensor against an instance-level
+    reference is applied to these statistics afterwards, at load time, where
+    the reference is a choice of the run rather than of the dataset (see the
+    ``normalization`` module).
+
     Parameters
     ----------
     window : np.ndarray
-        1-D slice of a sensor series (z-scored per instance unless
-        ``normalized`` is False).
+        1-D slice of a raw sensor series.
     sensor : str
         Sensor name, used to prefix the feature keys.
-    normalized : bool
-        Whether the series was z-scored per instance.
 
     Returns
     -------
@@ -96,9 +96,7 @@ def window_features(window: np.ndarray, sensor: str, normalized: bool = True) ->
             skew_v = float(skew(valid))
             kurt_v = float(kurtosis(valid))
 
-    if normalized:
-        max_z = float(np.abs(valid).max())
-    elif std < CONSTANT_THRESHOLD:
+    if std < CONSTANT_THRESHOLD:
         max_z = 0.0
     else:
         max_z = float((np.abs(valid - mean) / std).max())
@@ -118,18 +116,67 @@ def window_features(window: np.ndarray, sensor: str, normalized: bool = True) ->
     }
 
 
+def reference_statistics(df: pd.DataFrame, sensors: list[str]) -> dict[str, float]:
+    """Compute the (mu, sigma) of every normalization reference of one instance.
+
+    These travel in the features parquet beside the raw window features, so a
+    run can z-score against any of them at load time without a rebuild (see
+    the ``normalization`` module). Two references are stored:
+
+    - ``instance`` — over the whole recording. This is what the pipeline used
+      to apply at build time, kept so the earlier results stay reproducible,
+      and the leak of TODO item 9: the fault period inflates the divisor of
+      the normal-operation windows that the prediction task learns from.
+    - ``normal`` — over the samples the 3W ``class`` column marks as normal
+      operation (0), so the fault period cannot reach the statistic.
+
+    A sensor with fewer than two valid samples under a reference gets NaN for
+    both statistics, which the normalizer reads as "leave this sensor raw" —
+    the behaviour the build-time normalizer had.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        One cleaned instance, including the 3W ``class`` column when present.
+    sensors : list[str]
+        Sensor columns to summarize.
+
+    Returns
+    -------
+    dict[str, float]
+        ``{ref_col(sensor, stat, reference): value}`` for every sensor,
+        ``"mean"``/``"std"`` and reference.
+    """
+    normal_mask = df["class"].to_numpy() == 0 if "class" in df.columns else None
+    stats: dict[str, float] = {}
+    for sensor in sensors:
+        column = df[sensor].to_numpy(dtype=float)
+        for reference in NORMALIZATION_REFERENCES:
+            if reference == "normal" and normal_mask is not None:
+                sample = column[normal_mask]
+            else:
+                sample = column
+            valid = sample[~np.isnan(sample)]
+            mean, std = (np.nan, np.nan) if len(valid) < 2 else (valid.mean(), valid.std())
+            stats[ref_col(sensor, "mean", reference)] = float(mean)
+            stats[ref_col(sensor, "std", reference)] = float(std)
+    return stats
+
+
 def extract_instance_features(
     df: pd.DataFrame,
     sensors: list[str] | None = None,
     window_size: int = WINDOW_SIZE,
     step_size: int = STEP_SIZE,
-    normalize: bool = True,
 ) -> pd.DataFrame:
     """Turn one cleaned instance into a DataFrame of windowed feature rows.
 
-    The instance is z-scored (unless ``normalize`` is False), then each window
-    of each sensor is reduced to 11 statistics. Windows whose 3W ``class``
-    column is entirely NaN (unlabeled pre-event stretches) are discarded.
+    Each window of each sensor is reduced to 11 statistics of the **raw**
+    signal, and every row additionally carries the instance's reference
+    statistics (``reference_statistics``) so that a run can z-score the
+    features against a reference of its choosing at load time. Windows whose
+    3W ``class`` column is entirely NaN (unlabeled pre-event stretches) are
+    discarded.
 
     Parameters
     ----------
@@ -142,13 +189,12 @@ def extract_instance_features(
         Window length in samples.
     step_size : int
         Stride between consecutive windows.
-    normalize : bool
-        Z-score each sensor per instance before windowing.
 
     Returns
     -------
     pd.DataFrame
-        One row per window with metadata + 11 features per sensor.
+        One row per window with metadata, 11 raw features per sensor, and the
+        instance's reference statistics repeated on every row.
     """
     if sensors is None:
         sensors = [s for s in KEY_SENSORS if s in df.columns]
@@ -158,8 +204,7 @@ def extract_instance_features(
     fault_class = int(df["fault_class"].iloc[0])
     source_type = df["source_type"].iloc[0]
 
-    if normalize:
-        df = normalize_instance(df, sensors)
+    references = reference_statistics(df, sensors)
     sensor_arrays = {s: df[s].to_numpy(dtype=float) for s in sensors}
     state = df["class"].to_numpy() if "class" in df.columns else None
 
@@ -186,10 +231,8 @@ def extract_instance_features(
             "window_start": start,
         }
         for sensor in sensors:
-            sensor_features = window_features(
-                sensor_arrays[sensor][start:end], sensor, normalized=normalize
-            )
-            row.update(sensor_features)
+            row.update(window_features(sensor_arrays[sensor][start:end], sensor))
+        row.update(references)
         rows.append(row)
 
     return pd.DataFrame(rows)
@@ -199,7 +242,6 @@ def build_features(
     output_path: Path,
     raw_dir: Path = RAW_DATA_DIR,
     max_instances_per_class: int | None = None,
-    normalize: bool = True,
     allow_overlap: bool = False,
     keep_extreme_values: bool = False,
     verbose: bool = False,
@@ -228,8 +270,6 @@ def build_features(
         Cap per class for quick smoke tests; ``None`` processes everything.
         The cap applies before the overlap rule, so a capped run may see
         fewer overlaps than the full dataset has.
-    normalize : bool
-        Z-score each sensor per instance before windowing (default on).
     allow_overlap : bool
         Keep the overlapping real instances instead of dropping them
         (default off).
@@ -291,7 +331,7 @@ def build_features(
                 continue
             n_kept += 1
 
-            df_feat = extract_instance_features(df_clean, normalize=normalize)
+            df_feat = extract_instance_features(df_clean)
             del df_clean
             if df_feat.empty:
                 continue

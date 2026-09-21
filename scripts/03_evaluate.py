@@ -32,7 +32,7 @@ Usage
     uv run scripts/03_evaluate.py [--model {rf,xgb,dt}] [--task {prediction,detection}]
                                   [--class-grouping {standard,hydrate,custom}]
                                   [--eval {holdout,nested,leave-one-out}]
-                                  [--cv-group {instance_id,well_id}] [--no-normalization]
+                                  [--cv-group {instance_id,well_id}] [--normalization {none,instance,normal}]
                                   [--allow-overlap]
 
 The predictions are read from — and the metrics written into — the run
@@ -55,7 +55,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from flowml.cli import add_class_grouping_arg, add_run_arg, run_parser, run_tag
+from flowml.cli import (
+    add_class_grouping_arg,
+    add_normalization_arg,
+    add_run_arg,
+    run_parser,
+    run_tag,
+)
 from flowml.config import (
     FAULT_CLASSES,
     WINDOW_CLASSES,
@@ -142,6 +148,7 @@ def main() -> None:
     """Parse arguments, compute metrics per strategy, and write the outputs."""
     parser = run_parser(__doc__.splitlines()[0])
     add_class_grouping_arg(parser)
+    add_normalization_arg(parser)
     add_run_arg(parser)
     args = parser.parse_args()
     started = datetime.now().astimezone()
@@ -149,7 +156,7 @@ def main() -> None:
     common = (
         args.model,
         args.task,
-        not args.no_normalization,
+        args.normalization,
         args.cv_group,
         args.eval,
         args.allow_overlap,

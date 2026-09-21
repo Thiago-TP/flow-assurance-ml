@@ -3,21 +3,27 @@
 Reads the raw per-instance parquet files, drops the real instances that
 overlap another recording of the same well (unless ``--allow-overlap``),
 cleans each remaining instance (bounded forward-fill + critical-sensor quality
-gate), z-scores it, and extracts the 88 statistical features per 300 s window.
-Each row carries both task labels (``window_label`` and ``fault_class``), so
-one parquet serves both the detection and the prediction task.
+gate), and extracts the 88 statistical features per 300 s window. Each row
+carries both task labels (``window_label`` and ``fault_class``), so one
+parquet serves both the detection and the prediction task.
+
+The features are always **raw**. Normalization is no longer a property of the
+dataset: each row additionally carries the (mu, sigma) of every reference a
+run might z-score against, so choosing one costs a training run rather than a
+rebuild of this file (see ``flowml.normalization`` and ``--normalization`` on
+the later stages).
 
 Usage
 -----
     uv run scripts/01_build_features.py [--max-instances N] [--raw-dir PATH]
-                                        [--no-normalization] [--allow-overlap]
+                                        [--allow-overlap] [--keep-extreme-values]
                                         [--verbose]
 
 Output
 ------
-    data/features_zscore.parquet
-    (``raw`` replaces ``zscore`` with --no-normalization; ``_overlap`` is
-    appended with --allow-overlap, e.g. features_zscore_overlap.parquet)
+    data/features.parquet
+    (``_overlap`` is appended with --allow-overlap and ``_extremes`` with
+    --keep-extreme-values, e.g. features_overlap_extremes.parquet)
 """
 
 from datetime import datetime
@@ -45,15 +51,13 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    normalize = not args.no_normalization
-    output_path = features_path(normalize, args.allow_overlap, args.keep_extreme_values)
+    output_path = features_path(args.allow_overlap, args.keep_extreme_values)
     print(f"Building features from {args.raw_dir}")
     print(f"Started {datetime.now().astimezone():%Y-%m-%d %H:%M:%S}")
     build_features(
         output_path=output_path,
         raw_dir=args.raw_dir,
         max_instances_per_class=args.max_instances,
-        normalize=normalize,
         allow_overlap=args.allow_overlap,
         keep_extreme_values=args.keep_extreme_values,
         verbose=args.verbose,

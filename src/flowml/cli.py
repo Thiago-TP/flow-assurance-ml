@@ -11,6 +11,8 @@ from flowml.config import (
     EXTREME_VALUE_LIMIT,
     N_JOBS,
     N_SPLITS_OUTER,
+    NORMALIZATION,
+    NORMALIZATIONS,
     TEMPERATURE_LIMITS,
     TEST_SIZE,
     default_eval_mode,
@@ -62,14 +64,6 @@ def run_parser(description: str, with_model: bool = True) -> argparse.ArgumentPa
         "--verbose",
         action="store_true",
         help="print detailed progress (per class, per fold, per search candidate)",
-    )
-    parser.add_argument(
-        "--no-normalization",
-        action="store_true",
-        help=(
-            "skip per-instance z-score normalization: stage 1 builds raw features, "
-            "later stages read and write the matching _raw artifacts"
-        ),
     )
     parser.add_argument(
         "--allow-overlap",
@@ -175,6 +169,36 @@ def add_class_grouping_arg(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_normalization_arg(parser: argparse.ArgumentParser) -> None:
+    """Add the ``--normalization`` switch to a parser that loads features.
+
+    Every stage from training onwards accepts it; feature building does not,
+    because normalization is no longer baked into the parquet. Stage 1 writes
+    raw features plus the statistics of every reference, and this switch picks
+    which one the features are z-scored against once loaded (see the
+    ``normalization`` module), so comparing references costs a training run
+    rather than a rebuild.
+
+    Parameters
+    ----------
+    parser : argparse.ArgumentParser
+        Parser to extend in place.
+    """
+    parser.add_argument(
+        "--normalization",
+        choices=NORMALIZATIONS,
+        default=NORMALIZATION,
+        help=(
+            "reference the window features are z-scored against at load time: "
+            "none = the raw features (default; per-column scaling is a no-op for "
+            "the tree models here, and per-instance scaling is what leaks); "
+            "instance = statistics of the whole recording, reproducing the "
+            "pipeline's earlier behaviour and its label leak; normal = statistics "
+            f"of the instance's normal-operation samples only (default: {NORMALIZATION})"
+        ),
+    )
+
+
 def add_run_arg(parser: argparse.ArgumentParser) -> None:
     """Add the ``--run`` switch selecting which run directory a stage uses.
 
@@ -234,7 +258,7 @@ def skip_if_white_box(model: str, stage: str) -> None:
 def run_tag(
     model: str,
     task: str,
-    normalized: bool = True,
+    normalization: str = NORMALIZATION,
     cv_group: str = CV_GROUPING,
     eval_mode: str = "holdout",
     allow_overlap: bool = False,
@@ -246,14 +270,15 @@ def run_tag(
     The tag covers every switch that changes what stage 2 produces: model,
     task, normalization, overlap and extreme-value rules, CV grouping,
     evaluation protocol, and the label set the model is fit on. The defaults
-    (overlapping instances dropped, extreme readings masked, instance
-    grouping, holdout evaluation, the dataset's own classes) add no suffix;
-    keeping overlapping instances appends ``_overlap``, keeping extreme
-    readings ``_extremes``, well-level grouping ``_wellcv``, nested
-    evaluation ``_nested``, leave-one-out evaluation ``_loo`` and a class
-    grouping its own name, so all runs coexist. The protocol suffix is
-    written even when the protocol is the default of the grouping, so a
-    well-grouped run reads ``_wellcv_loo``.
+    (no normalization, overlapping instances dropped, extreme readings masked,
+    instance grouping, holdout evaluation, the dataset's own classes) add no
+    suffix; a normalization reference appends its own name, keeping
+    overlapping instances appends ``_overlap``, keeping extreme readings
+    ``_extremes``, well-level grouping ``_wellcv``, nested evaluation
+    ``_nested``, leave-one-out evaluation ``_loo`` and a class grouping its
+    own name, so all runs coexist. The protocol suffix is written even when
+    the protocol is the default of the grouping, so a well-grouped run reads
+    ``_wellcv_loo``.
 
     Parameters
     ----------
@@ -261,8 +286,9 @@ def run_tag(
         ``"rf"``, ``"xgb"`` or ``"dt"``.
     task : str
         ``"prediction"`` or ``"detection"``.
-    normalized : bool
-        Whether the run uses per-instance z-scored features.
+    normalization : str
+        The reference the features are z-scored against: ``"none"``,
+        ``"instance"`` or ``"normal"``.
     cv_group : str
         ``"instance_id"`` or ``"well_id"``.
     eval_mode : str
@@ -279,12 +305,12 @@ def run_tag(
     Returns
     -------
     str
-        E.g. ``"xgb_prediction_zscore"``, ``"xgb_prediction_raw_overlap_wellcv_loo"``,
-        ``"xgb_prediction_raw_overlap_hydrate"`` or
-        ``"xgb_prediction_zscore_overlap_extremes_wellcv_nested_custom"``.
+        E.g. ``"xgb_prediction"``, ``"xgb_prediction_overlap_wellcv_loo"``,
+        ``"xgb_prediction_instance_overlap_hydrate"`` or
+        ``"xgb_prediction_normal_overlap_extremes_wellcv_nested_custom"``.
     """
     tag = (
-        f"{model}_{task}_{norm_suffix(normalized)}"
+        f"{model}_{task}{norm_suffix(normalization)}"
         f"{overlap_suffix(allow_overlap)}{extreme_suffix(keep_extreme_values)}"
     )
     if cv_group == "well_id":

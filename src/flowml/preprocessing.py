@@ -1,9 +1,11 @@
-"""Raw-data loading, instance selection, cleaning, and normalization.
+"""Raw-data loading, instance selection, and cleaning.
 
 The 3W dataset stores one parquet file per instance (a continuous recording of
 one well), organized in folders ``0/`` .. ``9/`` named after the fault class.
-This module turns those raw files into clean, per-instance-normalized sensor
-series ready for feature extraction.
+This module turns those raw files into clean sensor series ready for feature
+extraction. It no longer normalizes them: scaling is applied to the window
+features at load time, against a reference the run chooses (see the
+``normalization`` module).
 
 Two defaults guard against known defects of the raw data, each with a switch
 that turns it off:
@@ -27,7 +29,6 @@ import numpy as np
 import pandas as pd
 
 from flowml.config import (
-    CONSTANT_THRESHOLD,
     CRITICAL_SENSOR,
     EXTREME_VALUE_LIMIT,
     FFILL_LIMIT,
@@ -532,36 +533,7 @@ def clean_instance(df: pd.DataFrame, sensors: list[str] | None = None) -> pd.Dat
     return df
 
 
-def normalize_instance(df: pd.DataFrame, sensors: list[str]) -> pd.DataFrame:
-    """Z-score each sensor within one instance.
-
-    Wells operate at very different absolute levels (e.g. 50 bar vs 200 bar),
-    so per-instance normalization makes the model learn *patterns of change*
-    relative to each well's own baseline instead of absolute values. Constant
-    sensors (stuck or switched off) are set to 0 so their absolute level
-    cannot leak into the features.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        One cleaned instance.
-    sensors : list[str]
-        Sensor columns to normalize.
-
-    Returns
-    -------
-    pd.DataFrame
-        Copy of the instance with normalized sensors.
-    """
-    df = df.copy()
-    for sensor in sensors:
-        col = df[sensor].to_numpy(dtype=float)
-        valid = col[~np.isnan(col)]
-        if len(valid) < 2:
-            continue
-        std = valid.std()
-        if std < CONSTANT_THRESHOLD:
-            df[sensor] = 0.0
-            continue
-        df[sensor] = (col - valid.mean()) / std
-    return df
+# Per-instance z-scoring used to live here, applied to the signal before
+# windowing. It now happens to the window *features* instead, at load time and
+# against a reference the run chooses — see the ``normalization`` module, which
+# also documents why the old whole-recording reference leaked the label.

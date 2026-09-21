@@ -2,7 +2,7 @@
 
 Self-contained, script-based rewrite of the flow-assurance ML pipeline for the [Petrobras 3W dataset](https://github.com/petrobras/3W).
 
-Two tasks, three tree models (Random Forest, XGBoost, a single decision tree), four stages, one features parquet per normalization mode.
+Two tasks, three tree models (Random Forest, XGBoost, a single decision tree), four stages, one raw features parquet that every normalization mode is derived from at run time.
 
 ## Pipeline
 
@@ -14,9 +14,10 @@ flowchart LR
     A[("3W raw parquets<br/>1 file = 1 well instance")] --> A2["drop overlapping instances<br/>(kept with --allow-overlap)"]
     A2 --> A3["mask implausible readings → NaN<br/>magnitude · negative pressure · temperature<br/>(kept with --keep-extreme-values)"]
     A3 --> B["clean<br/>ffill ≤ 60 s · quality gate"]
-    B --> C["z-score per instance<br/>(skipped with --no-normalization)"]
-    C --> D["window 300 s / step 150 s<br/>11 stats × 8 sensors = 88 features"]
-    D --> E[("data/features_<norm>.parquet<br/>norm: zscore | raw<br/>labels: window_label + fault_class")]
+    B --> D["window 300 s / step 150 s<br/>11 stats × 8 sensors = 88 raw features"]
+    B --> C["per-instance reference statistics<br/>mu, sigma over the whole recording<br/>and over normal operation only"]
+    D --> E[("data/features.parquet<br/>88 raw features + 32 reference stats<br/>labels: window_label + fault_class")]
+    C --> E
   end
 
   subgraph S2["Train/Test/Tree Pipeline"]
@@ -41,7 +42,7 @@ Every window row carries **both** labels, so one parquet serves both tasks:
 
 ```mermaid
 flowchart TD
-    P[("features_<norm>.parquet")] --> DET["task = detection<br/><i>what is happening now?</i>"]
+    P[("features.parquet")] --> DET["task = detection<br/><i>what is happening now?</i>"]
     P --> PRED["task = prediction<br/><i>what fault is coming?</i>"]
     DET --> DL["label = <b>window_label</b><br/>17 classes: 0 normal · 1-9 active · 101-109 transient<br/>all windows used"]
     PRED --> PL["label = <b>fault_class</b><br/>8 classes: the fault the instance later develops<br/>only windows with window_label == 0"]
@@ -91,7 +92,7 @@ under a unique tag:
 | `--class-grouping`   | `standard`, `hydrate`, `custom` | `standard`          | 2-5    |
 | `--eval`             | `holdout`, `nested`, `leave-one-out` | `holdout` with `instance_id`, `leave-one-out` with `well_id` | 2-5 |
 | `--cv-group`         | `instance_id`, `well_id`          | `instance_id`       | 2-5    |
-| `--no-normalization` | flag                                  | off                   | 1-5    |
+| `--normalization`    | `none`, `instance`, `normal`    | `none`              | 2-5    |
 | `--allow-overlap`    | flag                                  | off                   | 1-5    |
 | `--keep-extreme-values` | flag                               | off                   | 1-5    |
 | `--n-jobs`           | int (`-1` = all cores)              | `min(6, cores - 2)` | 2, 4   |
@@ -133,9 +134,30 @@ reaching it, and summing distributions that share an argmax keeps it; the one
 node where an exact tie could flip the answer is left alone), so no metric
 moves and the saved `.joblib` is the pruned model itself.
 
-`--no-normalization` skips the per-instance z-score in stage 1 and makes every
-stage read and write the `_raw` artifacts instead of `_zscore`, so both
-feature sets and their runs coexist side by side.
+`--normalization` picks the reference the window features are z-scored
+against, **after** they are loaded rather than while they are built. Stage 1
+always writes raw features and stores, per instance and sensor, the mean and
+standard deviation of every reference beside them, so switching costs a
+training run instead of a 231 MB rebuild:
+
+| value | reference | why |
+| --- | --- | --- |
+| `none` (default) | — | The raw features. For axis-aligned tree models, per-*column* scaling is a no-op; the only scaling that changes the matrix is per-*instance*, and that is the one that leaks. |
+| `instance` | mean and sigma of the whole recording | Reproduces exactly what the pipeline did before, so earlier results stay comparable — **and its leak**: a normal-operation window is divided by a number the later fault helped produce. |
+| `normal` | mean and sigma of the instance's normal-operation samples | Leak-free with respect to the fault period, and the honest choice for detection. For prediction it is close to circular, since every modeled window is already a normal-operation one. |
+
+The transform is exact, not an approximation: z-scoring by a constant (mu, sigma)
+is affine, so each of the eleven statistics has a closed form — `(v - mu)/sigma`
+for `mean/min/max/median`, `v/sigma` for `std/iqr/diff1_std/diff2_std`, unchanged
+for `skewness/kurtosis`, and `max(|max - mu|, |min - mu|)/sigma` for `max_zscore`.
+`tests/test_normalization.py` checks that against a transcription of the
+removed build-time code.
+
+Note what this does *not* fix. Applying the transform at load time removes
+train/test leakage, but the per-instance leak is *inside* one instance: the
+contaminated divisor and the window it divides always land on the same side of
+any split. Only choosing a reference that never saw the fault period removes
+it.
 
 `--allow-overlap` keeps the real instances that overlap another recording of
 the same well in time. Stage 1 drops them by default: 3W instances are
@@ -384,7 +406,7 @@ A full grouped exploration is therefore two chains — the standard one and the
 grouped one — which is what `main.py --class-grouping hydrate` runs:
 
 ```bash
-uv run main.py --class-grouping hydrate --no-normalization --allow-overlap
+uv run main.py --class-grouping hydrate --normalization instance --allow-overlap
 ```
 
 > [!TIP]
@@ -474,8 +496,8 @@ terminal and save a copy under `results/audits/`; the write-ups under
 | `normalization_leakage_auditing.py` | Does per-instance z-scoring leak the coming fault into the normal-operation windows the prediction task learns from? | `normalization_leakage_<timestamp>.txt` |
 
 ```bash
-uv run scripts/audits/split_composition_auditing.py --no-normalization --allow-overlap
-uv run scripts/audits/well_leakage_auditing.py --no-normalization --allow-overlap
+uv run scripts/audits/split_composition_auditing.py --allow-overlap
+uv run scripts/audits/well_leakage_auditing.py --allow-overlap
 uv run scripts/audits/sensor_distributions_auditing.py          # reads the whole raw dataset; --max-instances 3 for a look
 uv run scripts/audits/normalization_leakage_auditing.py
 ```
@@ -487,7 +509,8 @@ uv run scripts/audits/normalization_leakage_auditing.py
 ├── pyproject.toml            uv project (flowml package, src layout)
 ├── src/flowml/
 │   ├── config.py             paths · sensors · class maps · constants
-│   ├── preprocessing.py      loading · cleaning · z-score
+│   ├── preprocessing.py      loading · cleaning
+│   ├── normalization.py      load-time z-scoring against a chosen reference
 │   ├── features.py           windowing · 88 features · labeling
 │   ├── train_val_test.py     task datasets · pipelines · CV search · holdout / nested / leave-one-out evaluation · split composition
 │   ├── evaluation.py         metrics · per-group sheet · confusion matrix
@@ -548,10 +571,10 @@ uv run scripts/audits/normalization_leakage_auditing.py
   `class_weight="balanced"`; XGBoost via sample weights computed **per training
   fold** (the original computed them globally).
 - **Outliers preserved, impossible values removed**: pressure spikes are fault
-  signatures; `max_zscore` captures them instead of removing them. On z-scored
-  features it is the largest absolute value of the window — a z-score relative
-  to the instance baseline, never re-normalized within the window; only on raw
-  features (`--no-normalization`) is it computed within the window itself.
+  signatures; `max_zscore` captures them instead of removing them. On raw
+  features it is the z-score computed within the window itself; under a
+  normalization reference it becomes the largest absolute value of the window
+  relative to the instance baseline, never re-normalized within the window.
   What stage 1 does remove (`--keep-extreme-values` keeps it) is readings that
   cannot be measurements at all: beyond 1e8 in magnitude, negative absolute
   pressures or choke openings, or temperatures outside −50…250 °C. Every bound sits beyond the
@@ -561,8 +584,12 @@ uv run scripts/audits/normalization_leakage_auditing.py
   standard deviation cannot be computed at that magnitude (57,424 identical
   values yield a spurious σ of 1.5e26 instead of 0), so the constant-sensor
   guard misses it and the instance gets a fake, perfectly flat feature of -1.0.
-- **Per-instance z-score is optional**: `--no-normalization` builds features
-  on the raw sensor values, letting absolute operating levels reach the model.
+- **Normalization is a run-time choice, and off by default**: features are
+  built raw and carry the statistics of every reference, so `--normalization`
+  selects one per run. The default is `none`, because the audit found the
+  measured benefit of per-instance z-scoring to be monotone in the size of its
+  leak — with wells as groups, `--cv-group well_id` removes reliance on
+  absolute levels more honestly than a divisor does.
 - Deep-learning branches (CNN-1D, CNN-LSTM) of the original repo were dropped
   deliberately: the end goal is interpretable tree models built on the top
   SHAP features. Since filtering was only effective with those methods, it was also dropped.

@@ -182,7 +182,7 @@ Each is tagged **feature**, **documentational** or **bugfix**.
   exactly zero — instrument health, not flow physics. The raw baselines were re-run on the same
   2-to-12 depth grid first, so every comparison in the report is like-for-like; that moved the raw
   artifacts off report 1's grid, which report 1 §10.6 records.)
-- [ ] **9 · bugfix** — Per-instance z-scoring leaks the coming fault into the prediction task's
+- [X] **9 · bugfix** — Per-instance z-scoring leaks the coming fault into the prediction task's
   features. `features.extract_instance_features` calls `preprocessing.normalize_instance` on the
   *whole* cleaned instance, so every sensor is centred and scaled by statistics of the entire
   recording — the fault period included — and only afterwards are the windows cut and the faulty
@@ -197,6 +197,23 @@ Each is tagged **feature**, **documentational** or **bugfix**.
   have carried. Then regenerate every z-scored artifact and rewrite the affected sections of report
   2. Note this is a *deployment* problem in the detection task too (the statistics are not
   available online), though not a label leak there.
+  (Done, but **not** as proposed above — the normal-operation-prefix fix was rejected. It works for
+  detection and not for prediction: there every modeled window is already a normal-operation one, so
+  the reference is computed from nearly the rows it is applied to, and a sensor frozen during normal
+  operation gives a near-zero divisor that blows up whatever moves later. Instead normalization
+  stopped being a property of the dataset. Stage 1 now always writes **raw** features and stores, per
+  instance and sensor, the mean and standard deviation of each candidate reference beside them
+  (32 extra columns); `--normalization {none,instance,normal}` picks one at load time, replacing
+  `--no-normalization`, and the default is now `none`. The transform is exact rather than a rebuild:
+  z-scoring by a constant (mu, sigma) is affine, so all eleven statistics have closed forms —
+  `(v-mu)/sigma`, `v/sigma`, unchanged, and `max(|max-mu|,|min-mu|)/sigma` for `max_zscore` — which
+  `tests/test_normalization.py` verifies against a transcription of the removed build-time code, so
+  `--normalization instance` reproduces the old artifacts and the leaky baseline stays comparable.
+  `preprocessing.normalize_instance` is gone; the new `flowml/normalization.py` documents why load-time
+  application alone does *not* remove the leak — the contaminated divisor and its window belong to the
+  same instance and never separate under a split — and why only a reference that never saw the fault
+  period does. Still open: re-making report 2 with the three references, which is the point of the
+  restructure.)
 - [ ] **10 · feature** — Decide what to do about frozen sensors, now that they sit at the root of
   the z-scored trees ("is this standard deviation exactly zero?"). `sensor_distributions_auditing.py`
   shows `P-TPT` frozen at exactly 0 for 100 % of the readings of wells 35, 36 and 40 and of every

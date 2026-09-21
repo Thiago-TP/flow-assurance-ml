@@ -46,7 +46,7 @@ Usage
     uv run scripts/05_decision_tree.py [--model {rf,xgb}] [--task {prediction,detection}]
                                        [--class-grouping {standard,hydrate,custom}]
                                        [--eval {holdout,nested,leave-one-out}]
-                                       [--cv-group {instance_id,well_id}] [--no-normalization]
+                                       [--cv-group {instance_id,well_id}] [--normalization {none,instance,normal}]
                                        [--allow-overlap] [--top-n N]
                                        [--depths 2,3,4,5,6,7,8,9,10,11,12]
 
@@ -87,6 +87,7 @@ from sklearn.tree import DecisionTreeClassifier
 
 from flowml.cli import (
     add_class_grouping_arg,
+    add_normalization_arg,
     add_run_arg,
     eval_suffix,
     grouping_suffix,
@@ -489,6 +490,7 @@ def main() -> None:
     """Select top SHAP features, run the protocol per strategy, and export trees."""
     parser = run_parser(__doc__.splitlines()[0])
     add_class_grouping_arg(parser)
+    add_normalization_arg(parser)
     add_run_arg(parser)
     parser.add_argument(
         "--top-n",
@@ -506,11 +508,10 @@ def main() -> None:
     started = datetime.now().astimezone()
     depths = [int(d) for d in args.depths.split(",")]
 
-    normalized = not args.no_normalization
     common = (
         args.model,
         args.task,
-        normalized,
+        args.normalization,
         args.cv_group,
         args.eval,
         args.allow_overlap,
@@ -519,7 +520,7 @@ def main() -> None:
     tag = run_tag(*common, args.class_grouping)
     standard_tag = run_tag(*common, "standard")
     dtag = (
-        f"dt_{args.task}_{norm_suffix(normalized)}{overlap_suffix(args.allow_overlap)}"
+        f"dt_{args.task}{norm_suffix(args.normalization)}{overlap_suffix(args.allow_overlap)}"
         f"{extreme_suffix(args.keep_extreme_values)}_from_{args.model}"
     )
     if args.cv_group == "well_id":
@@ -539,7 +540,7 @@ def main() -> None:
 
     data = load_task_data(
         args.task,
-        normalized,
+        args.normalization,
         args.cv_group,
         args.allow_overlap,
         args.keep_extreme_values,
