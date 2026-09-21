@@ -52,7 +52,7 @@ def degenerate_tree():
 
 
 def test_walk_tree_reaches_every_node_once():
-    tree, X = degenerate_tree()
+    tree, _ = degenerate_tree()
     reached = walk_tree(tree)
     assert len(reached) == len({node for node, _ in reached})
     assert reached[0] == (0, 0)
