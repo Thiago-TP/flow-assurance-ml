@@ -95,13 +95,14 @@ under a unique tag:
 | `--allow-overlap`    | flag                                  | off                   | 1-5    |
 | `--keep-extreme-values` | flag                               | off                   | 1-5    |
 | `--n-jobs`           | int (`-1` = all cores)              | `min(6, cores - 2)` | 2, 4   |
+| `--run`              | run id, path, or `latest`             | see *Artifacts*       | 2-5    |
 | `--verbose`          | flag                                  | off                   | 1-5    |
 
 `--model dt` fits a single decision tree where `rf` and `xgb` fit an ensemble
 of them. It runs through the same grouped hyperparameter search
 (`DT_PARAM_GRID`) and the same held-out evaluation as the other two, and stage
-2 additionally exports it as if/else rules (`results/metrics/<tag>_rules.txt`)
-and as a drawing (`results/figures/<tag>_tree.png`). Stages 4 and 5 are then
+2 additionally exports it as if/else rules (`<run>/metrics/<tag>_rules.txt`)
+and as a drawing (`<run>/figures/<tag>_tree.png`). Stages 4 and 5 are then
 skipped: they exist to read a black box — rank what drives an ensemble, then
 distil that ranking into a compact tree — and this model is that tree already.
 `main.py` skips them on its own, and running either one directly with
@@ -395,22 +396,66 @@ uv run main.py --class-grouping hydrate --no-normalization --allow-overlap
 
 ## Artifacts
 
+Every artifact belongs to one **run**: one invocation of `main.py`, or one
+stage started by hand. A run owns a directory under `results/runs/`, named
+after the moment it started and the commit it ran from, and the stages write
+into the `models/`, `metrics/` and `figures/` folders inside it. Reruns
+therefore accumulate instead of overwriting each other, and the code a number
+came from is recorded next to the number.
+
 ```mermaid
-flowchart LR
-  T["02_train_val_test.py<br/>tag = model_task_norm"] --> M["results/models/<br/>tag.joblib · tag_label_encoder.joblib"]
-  T --> O["results/metrics/<br/>tag_eval.parquet · tag_search.json · tag_cv_results.csv"]
-  T -. "--model dt" .-> R["results/metrics/tag_rules.txt<br/>results/figures/tag_tree.png"]
-  O --> EV["03_evaluate.py"] --> EM["results/metrics/tag_metrics.json<br/>results/figures/tag[_strategy]_confusion_matrix.png"]
-  M --> IN["04_interpret.py"] --> IM["results/metrics/tag_importance.json<br/>results/figures/tag_{mdi|gain,permutation,shap}.png"]
-  IM --> DT["05_decision_tree.py<br/>dtag = dt_task_norm_from_model"] --> DM["results/models/dtag.joblib<br/>results/metrics/dtag_{metrics.json,rules.txt,eval.parquet}<br/>results/figures/dtag_{tree,confusion_matrix}.png"]
+flowchart TB
+  subgraph R["results/"]
+    direction TB
+    IX["index.jsonl<br/><i>one line per finished stage</i>"]
+    subgraph RUN["runs/20260921_150733_3687aa2-dirty/"]
+      direction TB
+      MF["run.json — argv · commit · branch · dirty files · python · uv.lock<br/>changes.diff — git diff HEAD, only when the tree was dirty"]
+      FD["models/ · metrics/ · figures/"]
+    end
+    AU["audits/ · reports/<br/><i>not experiments; stay outside the runs</i>"]
+  end
 ```
 
-The tag carries every switch that changes what a run produces, so all
-configurations coexist: `xgb_prediction_raw_overlap_wellcv_loo_hydrate` is
-XGBoost predicting faults from raw features with overlapping instances kept,
-grouped and evaluated by well, leave-one-well-out, and fit on the hydrate
-label set. With a class grouping, stages 3 and 5 write one `_metrics.json`
-holding both strategies and strategy-suffixed figures beside it.
+Which run a stage uses is decided in this order: `--run <id|path|latest>`,
+then the `FLOWML_RUN_DIR` that `main.py` exports to its subprocesses, then
+either a new run (stage 2, which starts a chain) or the newest run holding the
+input the stage needs (stages 3-5). The choice is printed. So a whole chain
+lands in one directory, while `uv run scripts/03_evaluate.py` on its own still
+finds the model it should score — and `--run` points it at an older experiment
+when that is what you want.
+
+```mermaid
+flowchart LR
+  T["02_train_val_test.py<br/>tag = model_task_norm"] --> M["models/<br/>tag.joblib · tag_label_encoder.joblib"]
+  T --> O["metrics/<br/>tag_eval.parquet · tag_search.json · tag_cv_results.csv"]
+  T -. "--model dt" .-> R["metrics/tag_rules.txt<br/>figures/tag_tree.png"]
+  O --> EV["03_evaluate.py"] --> EM["metrics/tag_metrics.json<br/>figures/tag[_strategy]_confusion_matrix.png"]
+  M --> IN["04_interpret.py"] --> IM["metrics/tag_importance.json<br/>figures/tag_{mdi|gain,permutation,shap}.png"]
+  IM --> DT["05_decision_tree.py<br/>dtag = dt_task_norm_from_model"] --> DM["models/dtag.joblib<br/>metrics/dtag_{metrics.json,rules.txt,eval.parquet}<br/>figures/dtag_{tree,confusion_matrix}.png"]
+```
+
+Inside a run the tag still names the files, because one run holds more than
+one configuration: a class grouping trains both label sets, and stage 5 adds
+its distilled trees. The tag carries every switch that changes what a
+configuration produces, so they coexist:
+`xgb_prediction_raw_overlap_wellcv_loo_hydrate` is XGBoost predicting faults
+from raw features with overlapping instances kept, grouped and evaluated by
+well, leave-one-well-out, and fit on the hydrate label set. With a class
+grouping, stages 3 and 5 write one `_metrics.json` holding both strategies and
+strategy-suffixed figures beside it.
+
+`results/index.jsonl` is the flat view back over the runs — one JSON object per
+finished stage, with its run id, tag, commit and headline scores. It is the
+comparison the old flat layout gave for free, and it is appended to rather than
+rewritten, so a crash costs at most its last line:
+
+```python
+import pandas as pd
+
+runs = pd.read_json("results/index.jsonl", lines=True)
+runs.query("stage == '03_evaluate'").sort_values("full_f1_macro", ascending=False)
+```
 
 ## Audits
 
@@ -453,6 +498,7 @@ uv run scripts/audits/normalization_leakage_auditing.py
 │   │   ├── signatures.py     plot_fault_signatures
 │   │   ├── wells.py          plot_well_history
 │   │   └── timeline.py       plot_faults_per_well
+│   ├── runs.py               run directories · provenance manifest · index
 │   └── cli.py                shared argparse (--eval defaults per --cv-group)
 ├── main.py                   runs all stages in order
 ├── scripts/                  the pipeline stages + dataset visualization (thin CLIs)
@@ -466,8 +512,10 @@ uv run scripts/audits/normalization_leakage_auditing.py
 │   │   ├── simulated/
 │   │   └── drawn/
 │   └── well_histories/        one PDF per well + the fault timeline
-└── results/                  git-ignored
-    ├── models/ metrics/ figures/   artifacts of stages 2-5, one tag per run
+└── results/
+    ├── runs/                       one directory per experiment (git-ignored)
+    │   └── <timestamp>_<commit>/   run.json · changes.diff · models/ metrics/ figures/
+    ├── index.jsonl                 one line per finished stage (git-ignored)
     ├── audits/                     what the audit scripts print
     └── reports/                    markdown write-ups of explorations, citing the above
 ```

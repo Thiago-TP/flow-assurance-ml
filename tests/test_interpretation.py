@@ -114,15 +114,20 @@ def test_pruning_leaves_a_single_leaf_tree_alone():
 
 
 @pytest.mark.parametrize("prune", [True, False])
-def test_export_tree_writes_rules_and_figure(tmp_path, monkeypatch, prune):
-    import flowml.interpretation as interpretation
-
-    monkeypatch.setattr(interpretation, "METRICS_DIR", tmp_path / "metrics")
-    monkeypatch.setattr(interpretation, "FIGURES_DIR", tmp_path / "figures")
+def test_export_tree_writes_rules_and_figure(tmp_path, prune):
     tree, _ = degenerate_tree()
 
-    export_tree(tree, ["a", "b"], {0: "Zero", 1: "One"}, "t", prune=prune)
+    written = export_tree(
+        tree,
+        ["a", "b"],
+        {0: "Zero", 1: "One"},
+        "t",
+        metrics_dir=tmp_path / "metrics",
+        figures_dir=tmp_path / "figures",
+        prune=prune,
+    )
 
+    assert written == [tmp_path / "metrics" / "t_rules.txt", tmp_path / "figures" / "t_tree.png"]
     rules = (tmp_path / "metrics" / "t_rules.txt").read_text(encoding="utf-8")
     assert "Zero" in rules and "One" in rules
     assert (tmp_path / "figures" / "t_tree.png").exists()

@@ -54,22 +54,28 @@ Usage
 therefore one of ``rf`` / ``xgb``, and ``--model dt`` skips this stage, that
 run being a decision tree already.
 
-Outputs (dtag = dt_<task>_<norm>[_overlap]_from_<model>, plus _wellcv with
-well-level CV, _nested / _loo with those protocols, and _<class-grouping>
-when grouping; artifacts are strategy-suffixed when a grouping runs both
-strategies)
+The rankings are read from — and the trees written into — the run directory
+stage 4 wrote them to: the one ``main.py`` names in ``FLOWML_RUN_DIR``, the one
+``--run`` points at, or otherwise the newest run holding this configuration's
+ranking (see the ``runs`` module).
+
+Outputs, inside the run directory (dtag = dt_<task>_<norm>[_overlap]_from_<model>,
+plus _wellcv with well-level CV, _nested / _loo with those protocols, and
+_<class-grouping> when grouping; artifacts are strategy-suffixed when a
+grouping runs both strategies)
 --------------------------------------------------------------------------------
-    results/models/<dtag>.joblib             imputer+tree pipeline (the exported tree)
-    results/metrics/<dtag>_metrics.json      depth sweeps + held-out report
-    results/metrics/<dtag>_rules.txt         the tree as if/else rules
-    results/metrics/<dtag>_eval.parquet      held-out predictions
-    results/figures/<dtag>_tree.png          (+ .pdf when the canvas exceeds the raster cap)
-    results/figures/<dtag>_confusion_matrix.png
+    models/<dtag>.joblib             imputer+tree pipeline (the exported tree)
+    metrics/<dtag>_metrics.json      depth sweeps + held-out report
+    metrics/<dtag>_rules.txt         the tree as if/else rules
+    metrics/<dtag>_eval.parquet      held-out predictions
+    figures/<dtag>_tree.png          (+ .pdf when the canvas exceeds the raster cap)
+    figures/<dtag>_confusion_matrix.png
 """
 
 import json
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 
 import joblib
 import numpy as np
@@ -81,6 +87,7 @@ from sklearn.tree import DecisionTreeClassifier
 
 from flowml.cli import (
     add_class_grouping_arg,
+    add_run_arg,
     eval_suffix,
     grouping_suffix,
     run_parser,
@@ -88,9 +95,6 @@ from flowml.cli import (
     skip_if_white_box,
 )
 from flowml.config import (
-    FIGURES_DIR,
-    METRICS_DIR,
-    MODELS_DIR,
     N_SPLITS_CV,
     RANDOM_STATE,
     extreme_suffix,
@@ -105,6 +109,7 @@ from flowml.evaluation import (
     plot_confusion_matrix,
 )
 from flowml.interpretation import export_tree
+from flowml.runs import append_index, record_stage, resolve_run
 from flowml.train_val_test import (
     TaskData,
     coverage_folds,
@@ -484,6 +489,7 @@ def main() -> None:
     """Select top SHAP features, run the protocol per strategy, and export trees."""
     parser = run_parser(__doc__.splitlines()[0])
     add_class_grouping_arg(parser)
+    add_run_arg(parser)
     parser.add_argument(
         "--top-n",
         type=int,
@@ -497,6 +503,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     skip_if_white_box(args.model, "distilling a compact tree")
+    started = datetime.now().astimezone()
     depths = [int(d) for d in args.depths.split(",")]
 
     normalized = not args.no_normalization
@@ -519,6 +526,17 @@ def main() -> None:
         dtag = f"{dtag}_wellcv"
     dtag += eval_suffix(args.eval) + grouping_suffix(args.class_grouping)
 
+    # A grouped run distils two rankings and a standard one distils a single
+    # ranking, so either is enough to pick the run; ``ranking_of`` says which
+    # one is actually missing.
+    run = resolve_run(
+        args.run,
+        must_contain=[
+            f"metrics/{tag}_importance.json",
+            f"metrics/{standard_tag}_importance.json",
+        ],
+    )
+
     data = load_task_data(
         args.task,
         normalized,
@@ -530,7 +548,7 @@ def main() -> None:
 
     def ranking_of(source_tag: str, grouping: str) -> tuple[list[str], np.ndarray]:
         """Top-N features of one stage-4 ranking, and the matrix restricted to them."""
-        path = METRICS_DIR / f"{source_tag}_importance.json"
+        path = run.metrics / f"{source_tag}_importance.json"
         if not path.exists():
             sys.exit(
                 f"{path} not found. Run stages 2 and 4 for that label set first:\n"
@@ -599,7 +617,7 @@ def main() -> None:
         "cv_group": args.cv_group,
         "strategies": {},
     }
-    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    written = []
 
     for strategy in strategies:
         result = results[strategy.name]
@@ -610,11 +628,21 @@ def main() -> None:
         # the predictions afterwards — and the groups for 'native'. Exporting
         # before the dump means the saved model is the pruned one they show.
         tree_label_map = label_map if strategy.name == "native" else fine_map
-        export_tree(result["pipe"].named_steps["clf"], strategy.features, tree_label_map, artifact)
-        joblib.dump(result["pipe"], MODELS_DIR / f"{artifact}.joblib")
+        written += export_tree(
+            result["pipe"].named_steps["clf"],
+            strategy.features,
+            tree_label_map,
+            artifact,
+            metrics_dir=run.metrics,
+            figures_dir=run.figures,
+        )
+        pipe_path = run.models / f"{artifact}.joblib"
+        joblib.dump(result["pipe"], pipe_path)
 
         frame = result["eval_frame"]
-        frame.to_parquet(METRICS_DIR / f"{artifact}_eval.parquet", index=False)
+        frame_path = run.metrics / f"{artifact}_eval.parquet"
+        frame.to_parquet(frame_path, index=False)
+        written += [pipe_path, frame_path]
         y_true, y_pred = frame["y_true"].to_numpy(), frame["y_pred"].to_numpy()
 
         block = {
@@ -644,18 +672,33 @@ def main() -> None:
                 f"Confusion matrix — {artifact} ({protocol}; per-fold depths "
                 f"{min(fold_depths)}-{max(fold_depths)}, row-normalized)"
             )
+        matrix_path = run.figures / f"{artifact}_confusion_matrix.png"
         plot_confusion_matrix(
             y_true,
             y_pred,
             label_map,
             title=title,
-            out_path=FIGURES_DIR / f"{artifact}_confusion_matrix.png",
+            out_path=matrix_path,
         )
+        written.append(matrix_path)
 
-    metrics_path = METRICS_DIR / f"{dtag}_metrics.json"
+    metrics_path = run.metrics / f"{dtag}_metrics.json"
     with open(metrics_path, "w", encoding="utf-8") as f:
         json.dump(metrics, f, ensure_ascii=False, indent=2)
+    written.append(metrics_path)
     print(f"  Saved: {metrics_path}")
+
+    headline = {
+        "class_grouping": args.class_grouping,
+        "eval": args.eval,
+        "cv_group": args.cv_group,
+        "top_n": args.top_n,
+    }
+    for name, block in metrics["strategies"].items():
+        headline[f"{name}_best_depth"] = block["best_depth"]
+        headline[f"{name}_f1_macro"] = round(block["global"]["f1_macro"], 4)
+    record_stage(run, "05_decision_tree", dtag, started, written, **headline)
+    append_index(run, "05_decision_tree", dtag, headline)
 
     print(f"\nSummary ({protocol}; all strategies scored on the same labels):")
     for name, block in metrics["strategies"].items():

@@ -18,6 +18,7 @@ from flowml.config import (
     norm_suffix,
     overlap_suffix,
 )
+from flowml.runs import RUN_DIR_ENV
 from flowml.train_val_test import MODEL_TYPES, TASKS, WHITE_BOX_MODELS
 
 
@@ -174,6 +175,34 @@ def add_class_grouping_arg(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_run_arg(parser: argparse.ArgumentParser) -> None:
+    """Add the ``--run`` switch selecting which run directory a stage uses.
+
+    Every stage writes into one experiment directory under ``results/runs/``
+    (see the ``runs`` module). Left unset, a stage takes the directory
+    ``main.py`` put in ``FLOWML_RUN_DIR``, and failing that either starts a new
+    run (stage 2) or picks the newest one holding the input it needs. The
+    switch overrides both, which is how a stage is rerun against an older
+    experiment.
+
+    Parameters
+    ----------
+    parser : argparse.ArgumentParser
+        Parser to extend in place.
+    """
+    parser.add_argument(
+        "--run",
+        default=None,
+        metavar="ID",
+        help=(
+            "run directory to read from and write into: a run id under results/runs/, "
+            "a path, or 'latest' for the newest run holding this stage's input "
+            f"(default: ${RUN_DIR_ENV} when set, else a new run for stage 2 and the "
+            "newest matching run for the later stages)"
+        ),
+    )
+
+
 def skip_if_white_box(model: str, stage: str) -> None:
     """Exit cleanly when an interpretation stage does not apply to the model.
 
@@ -194,8 +223,10 @@ def skip_if_white_box(model: str, stage: str) -> None:
     if model in WHITE_BOX_MODELS:
         print(
             f"Skipped: {stage} does not apply to --model {model}, which is already "
-            "interpretable.\nIts rules and figure come from stage 2:\n"
-            "  results/metrics/<tag>_rules.txt | results/figures/<tag>_tree.png"
+            "interpretable.\nIts rules and figure come from stage 2, inside that run's "
+            "directory:\n"
+            "  results/runs/<run>/metrics/<tag>_rules.txt | "
+            "results/runs/<run>/figures/<tag>_tree.png"
         )
         raise SystemExit(0)
 

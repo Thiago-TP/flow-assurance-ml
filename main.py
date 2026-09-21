@@ -16,6 +16,14 @@ Usage
                    [--allow-overlap] [--keep-extreme-values] [--n-jobs N]
                    [--max-instances N] [--rebuild-features] [--verbose]
                    [--skip-permutation] [--top-n N] [--depths 2,3,4,5,6,7,8,9,10,11,12]
+                   [--run ID]
+
+Every artifact of the chain lands in one run directory under
+``results/runs/``, named after the commit and the moment the chain started
+(see ``flowml.runs``). It is created here and handed to each stage through
+``FLOWML_RUN_DIR``, so the stages of one invocation always agree on where they
+are writing — including the two label sets a class grouping trains.
+``--run`` drives the chain into an existing run directory instead.
 
 ``--class-grouping`` reaches every stage but feature building, which the
 grouping cannot change: stages 2 and 4 train and rank on the grouped labels,
@@ -35,12 +43,14 @@ Examples
     uv run main.py --model dt                # single tree; stages 4 and 5 skipped
 """
 
+import os
 import subprocess
 import sys
 from pathlib import Path
 
-from flowml.cli import add_class_grouping_arg, run_parser
+from flowml.cli import add_class_grouping_arg, add_run_arg, run_parser
 from flowml.config import features_path
+from flowml.runs import RUN_DIR_ENV, resolve_run
 from flowml.train_val_test import WHITE_BOX_MODELS
 
 SCRIPTS_DIR = Path(__file__).parent / "scripts"
@@ -66,6 +76,7 @@ def main() -> None:
     """Parse the shared switches and run every stage in order."""
     parser = run_parser(__doc__.splitlines()[0])
     add_class_grouping_arg(parser)
+    add_run_arg(parser)
     parser.add_argument(
         "--max-instances",
         type=int,
@@ -95,6 +106,12 @@ def main() -> None:
         help="tree depths swept in stage 5 (default: 2,3,4,5,6,7,8,9,10,11,12)",
     )
     args = parser.parse_args()
+
+    # One run directory for the whole chain. Exporting it means every stage
+    # subprocess — and both label sets of a class grouping — writes into the
+    # same experiment instead of each opening one of its own.
+    run = resolve_run(args.run, create=True)
+    os.environ[RUN_DIR_ENV] = str(run.path)
 
     common = ["--verbose"] if args.verbose else []
     if args.no_normalization:
@@ -163,7 +180,7 @@ def main() -> None:
             [*grouped, "--top-n", str(args.top_n), "--depths", args.depths],
         )
 
-    print(f"\n{'=' * 70}\n  Pipeline complete.\n{'=' * 70}")
+    print(f"\n{'=' * 70}\n  Pipeline complete: {run.path}\n{'=' * 70}")
 
 
 if __name__ == "__main__":

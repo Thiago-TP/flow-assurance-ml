@@ -35,23 +35,29 @@ Usage
                                   [--cv-group {instance_id,well_id}] [--no-normalization]
                                   [--allow-overlap]
 
-Outputs (tag = the stage-2 tag of the run, ``_<class-grouping>`` included;
-confusion matrices are strategy-suffixed when a grouping reports both)
+The predictions are read from — and the metrics written into — the run
+directory stage 2 wrote them to: the one ``main.py`` names in
+``FLOWML_RUN_DIR``, the one ``--run`` points at, or otherwise the newest run
+holding this configuration's evaluation table (see the ``runs`` module).
+
+Outputs, inside the run directory (tag = the stage-2 tag of the run,
+``_<class-grouping>`` included; confusion matrices are strategy-suffixed when
+a grouping reports both)
 --------------------------------------------------------------------------------
-    results/metrics/<tag>_metrics.json
-    results/figures/<tag>[_<strategy>]_confusion_matrix.png
+    metrics/<tag>_metrics.json
+    figures/<tag>[_<strategy>]_confusion_matrix.png
 """
 
 import json
 import sys
+from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 
-from flowml.cli import add_class_grouping_arg, run_parser, run_tag
+from flowml.cli import add_class_grouping_arg, add_run_arg, run_parser, run_tag
 from flowml.config import (
     FAULT_CLASSES,
-    FIGURES_DIR,
-    METRICS_DIR,
     WINDOW_CLASSES,
 )
 from flowml.evaluation import (
@@ -61,14 +67,17 @@ from flowml.evaluation import (
     per_group_metrics,
     plot_confusion_matrix,
 )
+from flowml.runs import append_index, record_stage, resolve_run
 from flowml.train_val_test import group_labels, grouping_label_map
 
 
-def load_predictions(tag: str, collapse: str | None) -> pd.DataFrame | None:
+def load_predictions(metrics_dir: Path, tag: str, collapse: str | None) -> pd.DataFrame | None:
     """Read one run's held-out predictions, optionally grouping them.
 
     Parameters
     ----------
+    metrics_dir : Path
+        The run's ``metrics`` directory.
     tag : str
         Stage-2 tag of the run to read.
     collapse : str | None
@@ -80,7 +89,7 @@ def load_predictions(tag: str, collapse: str | None) -> pd.DataFrame | None:
     pd.DataFrame | None
         The evaluation table, or ``None`` when the run has not been trained.
     """
-    path = METRICS_DIR / f"{tag}_eval.parquet"
+    path = metrics_dir / f"{tag}_eval.parquet"
     if not path.exists():
         return None
     preds = pd.read_parquet(path)
@@ -133,7 +142,9 @@ def main() -> None:
     """Parse arguments, compute metrics per strategy, and write the outputs."""
     parser = run_parser(__doc__.splitlines()[0])
     add_class_grouping_arg(parser)
+    add_run_arg(parser)
     args = parser.parse_args()
+    started = datetime.now().astimezone()
 
     common = (
         args.model,
@@ -146,6 +157,17 @@ def main() -> None:
     )
     tag = run_tag(*common, args.class_grouping)
     standard_tag = run_tag(*common, "standard")
+
+    # Either label set is enough to report something, so the run only has to
+    # hold one of the two evaluation tables; a missing strategy is reported
+    # below rather than refusing the whole stage.
+    run = resolve_run(
+        args.run,
+        must_contain=[
+            f"metrics/{tag}_eval.parquet",
+            f"metrics/{standard_tag}_eval.parquet",
+        ],
+    )
 
     if args.class_grouping == "standard":
         label_map = FAULT_CLASSES if args.task == "prediction" else WINDOW_CLASSES
@@ -160,11 +182,12 @@ def main() -> None:
 
     print(f"Evaluation — {tag}")
     strategies = {}
+    written = []
     for name, source_tag, collapse in wanted:
-        preds = load_predictions(source_tag, collapse)
+        preds = load_predictions(run.metrics, source_tag, collapse)
         if preds is None:
             print(
-                f"  Strategy '{name}' skipped: {METRICS_DIR / f'{source_tag}_eval.parquet'} "
+                f"  Strategy '{name}' skipped: {run.metrics / f'{source_tag}_eval.parquet'} "
                 f"not found. Train it first:\n"
                 f"    uv run scripts/02_train_val_test.py --model {args.model} "
                 f"--task {args.task} --cv-group {args.cv_group} --eval {args.eval} "
@@ -174,13 +197,15 @@ def main() -> None:
         strategies[name] = {"source_run": source_tag, **score(preds, label_map)}
 
         artifact = tag if args.class_grouping == "standard" else f"{tag}_{name}"
+        matrix_path = run.figures / f"{artifact}_confusion_matrix.png"
         plot_confusion_matrix(
             preds["y_true"].to_numpy(),
             preds["y_pred"].to_numpy(),
             label_map,
             title=f"Confusion matrix — {artifact} (row-normalized)",
-            out_path=FIGURES_DIR / f"{artifact}_confusion_matrix.png",
+            out_path=matrix_path,
         )
+        written.append(matrix_path)
 
     if not strategies:
         sys.exit("Nothing to evaluate: no run of this configuration has been trained.")
@@ -210,10 +235,23 @@ def main() -> None:
             "the two trained on different label sets, not on different data."
         )
 
-    metrics_path = METRICS_DIR / f"{tag}_metrics.json"
+    metrics_path = run.metrics / f"{tag}_metrics.json"
     with open(metrics_path, "w", encoding="utf-8") as f:
         json.dump(metrics, f, ensure_ascii=False, indent=2)
+    written.append(metrics_path)
     print(f"\n  Saved: {metrics_path}")
+
+    headline = {
+        "class_grouping": args.class_grouping,
+        "eval": args.eval,
+        "cv_group": args.cv_group,
+        **{
+            f"{name}_f1_macro": round(block["global"]["f1_macro"], 4)
+            for name, block in strategies.items()
+        },
+    }
+    record_stage(run, "03_evaluate", tag, started, written, **headline)
+    append_index(run, "03_evaluate", tag, headline)
 
 
 if __name__ == "__main__":

@@ -51,18 +51,22 @@ Usage
                                         [--no-normalization] [--allow-overlap]
                                         [--n-jobs N] [--verbose]
 
-Outputs (tag = <model>_<task>_<norm>; ``_overlap`` appended with
---allow-overlap, ``_wellcv`` with --cv-group well_id, ``_nested`` with --eval
-nested, ``_loo`` with --eval leave-one-out, ``_<class-grouping>`` when
-grouping)
+This is the stage that starts an experiment: with no ``--run`` and no
+``FLOWML_RUN_DIR`` from ``main.py`` it creates a run directory of its own (see
+the ``runs`` module), and the later stages find it again.
+
+Outputs, inside the run directory (tag = <model>_<task>_<norm>; ``_overlap``
+appended with --allow-overlap, ``_wellcv`` with --cv-group well_id,
+``_nested`` with --eval nested, ``_loo`` with --eval leave-one-out,
+``_<class-grouping>`` when grouping)
 ---------------------------------------
-    results/models/<tag>.joblib             fitted imputer+classifier pipeline
-    results/models/<tag>_label_encoder.joblib
-    results/metrics/<tag>_eval.parquet      held-out test predictions
-    results/metrics/<tag>_search.json       best params + validation/test scores
-    results/metrics/<tag>_cv_results.csv    full search history
-    results/metrics/<tag>_rules.txt         (dt) the tree as if/else rules
-    results/figures/<tag>_tree.png          (dt) the tree drawn
+    models/<tag>.joblib             fitted imputer+classifier pipeline
+    models/<tag>_label_encoder.joblib
+    metrics/<tag>_eval.parquet      held-out test predictions
+    metrics/<tag>_search.json       best params + validation/test scores
+    metrics/<tag>_cv_results.csv    full search history
+    metrics/<tag>_rules.txt         (dt) the tree as if/else rules
+    figures/<tag>_tree.png          (dt) the tree drawn
 """
 
 import json
@@ -72,15 +76,14 @@ import joblib
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 
-from flowml.cli import add_class_grouping_arg, run_parser, run_tag
+from flowml.cli import add_class_grouping_arg, add_run_arg, run_parser, run_tag
 from flowml.config import (
-    METRICS_DIR,
-    MODELS_DIR,
     N_SPLITS_CV,
     norm_suffix,
 )
 from flowml.evaluation import global_metrics
 from flowml.interpretation import export_tree
+from flowml.runs import append_index, record_stage, resolve_run
 from flowml.train_val_test import (
     WHITE_BOX_MODELS,
     holdout_evaluation,
@@ -95,6 +98,7 @@ def main() -> None:
     """Parse arguments, run the evaluation protocol, and write the artifacts."""
     parser = run_parser(__doc__.splitlines()[0])
     add_class_grouping_arg(parser)
+    add_run_arg(parser)
     args = parser.parse_args()
     normalized = not args.no_normalization
     tag = run_tag(
@@ -108,7 +112,10 @@ def main() -> None:
         args.class_grouping,
     )
 
-    print(f"Training {tag} | started {datetime.now().astimezone():%Y-%m-%d %H:%M:%S}")
+    # Stage 2 is the head of the chain, so it opens a run when nothing names one.
+    started = datetime.now().astimezone()
+    run = resolve_run(args.run, create=True)
+    print(f"Training {tag} | started {started:%Y-%m-%d %H:%M:%S}")
 
     print("\n[1/3] Loading dataset...")
     data = load_task_data(
@@ -169,25 +176,31 @@ def main() -> None:
     print(f"  Best params: {best_params}")
 
     print("\n[3/3] Writing artifacts...")
-    MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    METRICS_DIR.mkdir(parents=True, exist_ok=True)
+    written = []
     if args.model in WHITE_BOX_MODELS:
         # A single tree is its own explanation, so stages 4 and 5 are skipped
         # for it; export here what they would have produced. The tree was fit
         # on encoded labels, so the names are keyed by encoded value. Exporting
         # before the dump means the saved model is the pruned one the rules and
         # the drawing describe — same predictions, fewer splits.
-        export_tree(
+        written += export_tree(
             search.best_estimator_.named_steps["clf"],
             data.feature_cols,
             {i: data.label_map.get(c, str(c)) for i, c in enumerate(encoder.classes_)},
             tag,
+            metrics_dir=run.metrics,
+            figures_dir=run.figures,
         )
 
-    joblib.dump(search.best_estimator_, MODELS_DIR / f"{tag}.joblib")
-    joblib.dump(encoder, MODELS_DIR / f"{tag}_label_encoder.joblib")
-    pd.DataFrame(search.cv_results_).to_csv(METRICS_DIR / f"{tag}_cv_results.csv", index=False)
-    eval_frame.to_parquet(METRICS_DIR / f"{tag}_eval.parquet", index=False)
+    model_path = run.models / f"{tag}.joblib"
+    encoder_path = run.models / f"{tag}_label_encoder.joblib"
+    cv_path = run.metrics / f"{tag}_cv_results.csv"
+    eval_path = run.metrics / f"{tag}_eval.parquet"
+    joblib.dump(search.best_estimator_, model_path)
+    joblib.dump(encoder, encoder_path)
+    pd.DataFrame(search.cv_results_).to_csv(cv_path, index=False)
+    eval_frame.to_parquet(eval_path, index=False)
+    written += [model_path, encoder_path, cv_path, eval_path]
 
     summary = {
         "tag": tag,
@@ -217,10 +230,25 @@ def main() -> None:
         "evaluation": evaluation,
         "best_params": {k.removeprefix("clf__"): v for k, v in best_params.items()},
     }
-    with open(METRICS_DIR / f"{tag}_search.json", "w", encoding="utf-8") as f:
+    search_path = run.metrics / f"{tag}_search.json"
+    with open(search_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
+    written.append(search_path)
 
-    print(f"\nDone. Artifacts written under results/ with tag '{tag}'.")
+    headline = {
+        "model": args.model,
+        "task": args.task,
+        "cv_group": args.cv_group,
+        "eval": args.eval,
+        "class_grouping": args.class_grouping,
+        "n_windows": data.n_windows,
+        "best_score_validation": round(float(search.best_score_), 4),
+        "test_f1_macro": round(float(test_metrics["f1_macro"]), 4),
+    }
+    record_stage(run, "02_train_val_test", tag, started, written, **headline)
+    append_index(run, "02_train_val_test", tag, headline)
+
+    print(f"\nDone. Artifacts written under {run.path} with tag '{tag}'.")
     print(
         f"Next: uv run scripts/03_evaluate.py --model {args.model} --task {args.task} "
         f"--cv-group {args.cv_group} --eval {args.eval} "

@@ -25,21 +25,34 @@ Usage
 ``nested`` and ``leave-one-out`` that is the deployment model of the final
 search on all data.
 
-Outputs (tag = <model>_<task>_<norm>, plus the suffixes of stage 2)
+The model is read from — and the rankings written into — the run directory
+stage 2 wrote it to: the one ``main.py`` names in ``FLOWML_RUN_DIR``, the one
+``--run`` points at, or otherwise the newest run holding this configuration's
+model (see the ``runs`` module).
+
+Outputs, inside the run directory (tag = <model>_<task>_<norm>, plus the
+suffixes of stage 2)
 ---------------------------------------
-    results/metrics/<tag>_importance.json   full rankings, every method
-    results/figures/<tag>_mdi.png           (rf)  or  <tag>_gain.png (xgb)
-    results/figures/<tag>_permutation.png
-    results/figures/<tag>_shap.png
+    metrics/<tag>_importance.json   full rankings, every method
+    figures/<tag>_mdi.png           (rf)  or  <tag>_gain.png (xgb)
+    figures/<tag>_permutation.png
+    figures/<tag>_shap.png
 """
 
 import json
 import sys
+from datetime import datetime
 
 import joblib
 
-from flowml.cli import add_class_grouping_arg, run_parser, run_tag, skip_if_white_box
-from flowml.config import FIGURES_DIR, METRICS_DIR, MODELS_DIR, TOP_N_FEATURES
+from flowml.cli import (
+    add_class_grouping_arg,
+    add_run_arg,
+    run_parser,
+    run_tag,
+    skip_if_white_box,
+)
+from flowml.config import TOP_N_FEATURES
 from flowml.interpretation import (
     mdi_importance,
     permutation_ranking,
@@ -48,6 +61,7 @@ from flowml.interpretation import (
     shap_ranking,
     xgb_importance,
 )
+from flowml.runs import append_index, record_stage, resolve_run
 from flowml.train_val_test import load_task_data
 
 
@@ -55,6 +69,7 @@ def main() -> None:
     """Parse arguments, compute every applicable ranking, and save outputs."""
     parser = run_parser(__doc__.splitlines()[0])
     add_class_grouping_arg(parser)
+    add_run_arg(parser)
     parser.add_argument(
         "--skip-permutation",
         action="store_true",
@@ -62,6 +77,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     skip_if_white_box(args.model, "feature-importance ranking")
+    started = datetime.now().astimezone()
     normalized = not args.no_normalization
     tag = run_tag(
         args.model,
@@ -75,7 +91,8 @@ def main() -> None:
     )
     cmap = "Blues_r" if args.model == "rf" else "Oranges_r"
 
-    model_path = MODELS_DIR / f"{tag}.joblib"
+    run = resolve_run(args.run, must_contain=f"models/{tag}.joblib")
+    model_path = run.models / f"{tag}.joblib"
     if not model_path.exists():
         sys.exit(
             f"{model_path} not found. Train first:\n"
@@ -84,7 +101,7 @@ def main() -> None:
             f"--class-grouping {args.class_grouping}"
         )
     pipe = joblib.load(model_path)
-    encoder = joblib.load(MODELS_DIR / f"{tag}_label_encoder.joblib")
+    encoder = joblib.load(run.models / f"{tag}_label_encoder.joblib")
     clf = pipe.named_steps["clf"]
 
     print(f"Interpretation — {tag}")
@@ -98,16 +115,18 @@ def main() -> None:
     )
     X_imputed = pipe.named_steps["imputer"].transform(data.X)
     rankings: dict[str, dict] = {}
+    written = []
 
     if args.model == "rf":
         print("\n[1/3] MDI (mean decrease in impurity)...")
         mdi = mdi_importance(clf, data.feature_cols)
         rankings["mdi"] = mdi.round(6).to_dict()
+        written.append(run.figures / f"{tag}_mdi.png")
         plot_ranking(
             mdi,
             "RF — feature importance (MDI)",
             "Mean Gini-impurity decrease",
-            FIGURES_DIR / f"{tag}_mdi.png",
+            written[-1],
             cmap,
         )
     else:
@@ -115,11 +134,12 @@ def main() -> None:
         native = xgb_importance(clf, data.feature_cols)
         for imp_type, series in native.items():
             rankings[imp_type] = series.round(6).to_dict()
+        written.append(run.figures / f"{tag}_gain.png")
         plot_ranking(
             native["gain"],
             "XGB — feature importance (gain)",
             "Mean accuracy gain per split",
-            FIGURES_DIR / f"{tag}_gain.png",
+            written[-1],
             cmap,
         )
 
@@ -131,21 +151,23 @@ def main() -> None:
             clf, X_imputed, encoder.transform(data.y), data.feature_cols, n_jobs=args.n_jobs
         )
         rankings["permutation"] = perm_mean.round(6).to_dict()
+        written.append(run.figures / f"{tag}_permutation.png")
         plot_permutation_boxplot(
             perm_raw,
             data.feature_cols,
             f"{args.model.upper()} — permutation importance",
-            FIGURES_DIR / f"{tag}_permutation.png",
+            written[-1],
         )
 
     print("\n[3/3] SHAP (TreeExplainer)...")
     shap_series = shap_ranking(clf, X_imputed, data.feature_cols)
     rankings["shap"] = shap_series.round(6).to_dict()
+    written.append(run.figures / f"{tag}_shap.png")
     plot_ranking(
         shap_series,
         f"{args.model.upper()} — SHAP global importance",
         "Mean |SHAP value|",
-        FIGURES_DIR / f"{tag}_shap.png",
+        written[-1],
         cmap,
     )
 
@@ -155,11 +177,20 @@ def main() -> None:
         "top_shap_features": shap_series.head(TOP_N_FEATURES).index.tolist(),
         "rankings": rankings,
     }
-    out_path = METRICS_DIR / f"{tag}_importance.json"
+    out_path = run.metrics / f"{tag}_importance.json"
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
+    written.append(out_path)
     print(f"\n  Saved: {out_path}")
     print(f"  Top {TOP_N_FEATURES} SHAP features: {out['top_shap_features']}")
+
+    headline = {
+        "class_grouping": args.class_grouping,
+        "methods": sorted(rankings),
+        "top_shap_features": out["top_shap_features"],
+    }
+    record_stage(run, "04_interpret", tag, started, written, **headline)
+    append_index(run, "04_interpret", tag, headline)
 
 
 if __name__ == "__main__":

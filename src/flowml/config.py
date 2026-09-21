@@ -17,10 +17,16 @@ RAW_DATA_DIR = Path(os.environ.get("FLOWML_RAW_DATA_DIR", r"../3W/dataset"))
 
 DATA_DIR = PACKAGE_ROOT / "data"
 RESULTS_DIR = PACKAGE_ROOT / "results"
-MODELS_DIR = RESULTS_DIR / "models"
-METRICS_DIR = RESULTS_DIR / "metrics"
-FIGURES_DIR = RESULTS_DIR / "figures"
 VISUALIZATION_DIR = PACKAGE_ROOT / "plots"
+
+# Artifacts of the modeling stages are not written to ``results`` directly:
+# each experiment gets a directory of its own under ``RUNS_DIR``, named after
+# the commit and the time it started, holding the ``models``, ``metrics`` and
+# ``figures`` folders the stages fill (see the ``runs`` module). The index is
+# the flat view over them — one line per finished stage. The audit scripts and
+# the written reports are not experiments and stay directly under ``results``.
+RUNS_DIR = RESULTS_DIR / "runs"
+RUN_INDEX_PATH = RESULTS_DIR / "index.jsonl"
 
 # The dataset plots of stage 0 (see the ``visualization`` package) come in hundreds of
 # files, so each family gets its own directory instead of sharing the one the

@@ -19,6 +19,8 @@ distilled tree of stage 5 and the ``--model dt`` run of stage 2 export
 themselves that way.
 """
 
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -29,8 +31,6 @@ from sklearn.tree._tree import TREE_LEAF as _TREE_LEAF
 from sklearn.tree._tree import TREE_UNDEFINED as _TREE_UNDEFINED
 
 from flowml.config import (
-    FIGURES_DIR,
-    METRICS_DIR,
     N_JOBS,
     PERM_REPEATS,
     PERM_SAMPLE,
@@ -351,8 +351,15 @@ def tree_canvas_size(tree, feature_names: list[str], class_names: list[str]) -> 
 
 
 def export_tree(
-    tree, feature_names: list[str], label_map: dict[int, str], name: str, prune: bool = True
-) -> None:
+    tree,
+    feature_names: list[str],
+    label_map: dict[int, str],
+    name: str,
+    *,
+    metrics_dir: Path,
+    figures_dir: Path,
+    prune: bool = True,
+) -> list[Path]:
     """Write a fitted decision tree as plain-text rules and a figure.
 
     The tree explains itself, so no ranking is computed: the exported rules
@@ -384,8 +391,17 @@ def export_tree(
         Human-readable name per class value in ``tree.classes_``.
     name : str
         Base name of the exported artifacts.
+    metrics_dir : Path
+        Directory the rules are written into (a run's ``metrics``).
+    figures_dir : Path
+        Directory the drawing is written into (a run's ``figures``).
     prune : bool
         Collapse the redundant splits before exporting (default on).
+
+    Returns
+    -------
+    list[Path]
+        The files written, for the caller to record in the run manifest.
     """
     grown_depth, grown_leaves = tree_shape(tree)
     removed = prune_redundant_splits(tree) if prune else 0
@@ -398,8 +414,8 @@ def export_tree(
         )
     class_names = [label_map.get(c, str(c)) for c in tree.classes_]
 
-    METRICS_DIR.mkdir(parents=True, exist_ok=True)
-    rules_path = METRICS_DIR / f"{name}_rules.txt"
+    metrics_dir.mkdir(parents=True, exist_ok=True)
+    rules_path = metrics_dir / f"{name}_rules.txt"
     rules_path.write_text(
         # export_text truncates past its own default of 10 levels, which the
         # depth sweep now reaches; ask for the whole tree.
@@ -429,15 +445,18 @@ def export_tree(
         f", pruned from {grown_depth}) — {name}" if removed else f") — {name}"
     )
     ax.set_title(title, fontsize=13, pad=10)
-    FIGURES_DIR.mkdir(parents=True, exist_ok=True)
-    tree_path = FIGURES_DIR / f"{name}_tree.png"
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    tree_path = figures_dir / f"{name}_tree.png"
     plt.savefig(tree_path, dpi=dpi, bbox_inches="tight")
     print(f"  Saved: {tree_path}")
+    written = [rules_path, tree_path]
     if dpi < TREE_FIGURE_DPI:
         pdf_path = tree_path.with_suffix(".pdf")
         plt.savefig(pdf_path, bbox_inches="tight")
         print(f"  Saved: {pdf_path}")
+        written.append(pdf_path)
     plt.close(fig)
+    return written
 
 
 def plot_ranking(ranking: pd.Series, title: str, xlabel: str, out_path, cmap="Blues_r") -> None:
