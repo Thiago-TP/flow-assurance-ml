@@ -197,8 +197,9 @@ def add_normalization_arg(parser: argparse.ArgumentParser) -> None:
             "none = the raw features (default; per-column scaling is a no-op for "
             "the tree models here, and per-instance scaling is what leaks); "
             "instance = statistics of the whole recording, reproducing the "
-            "pipeline's earlier behaviour and its label leak; normal = statistics "
-            f"of the instance's normal-operation samples only (default: {NORMALIZATION})"
+            "pipeline's earlier behaviour and its label leak; "
+            "normal-operation-values = statistics of the instance's "
+            f"normal-operation samples only (default: {NORMALIZATION})"
         ),
     )
 
@@ -324,7 +325,7 @@ def run_tag(
         ``"prediction"`` or ``"detection"``.
     normalization : str
         The reference the features are z-scored against: ``"none"``,
-        ``"instance"`` or ``"normal"``.
+        ``"instance"`` or ``"normal-operation-values"``.
     frozen_mode : str
         The frozen-sensor policy: ``"flag"``, ``"keep"`` or ``"drop"``.
     cv_group : str
@@ -345,7 +346,7 @@ def run_tag(
     str
         E.g. ``"xgb_prediction"``, ``"xgb_prediction_overlap_wellcv_loo"``,
         ``"xgb_prediction_instance_overlap_hydrate"`` or
-        ``"xgb_prediction_normal_overlap_extremes_wellcv_nested_custom"``.
+        ``"xgb_prediction_normal-operation-values_overlap_wellcv_nested_custom"``.
     """
     tag = (
         f"{model}_{task}{norm_suffix(normalization)}{frozen_suffix(frozen_mode)}"

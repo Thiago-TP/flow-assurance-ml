@@ -133,7 +133,7 @@ def test_stage_one_stores_both_references_for_every_sensor():
     frame = built(synthetic_instance())
 
     assert normalized_sensors(frame, "instance") == SENSORS
-    assert normalized_sensors(frame, "normal") == SENSORS
+    assert normalized_sensors(frame, "normal-operation-values") == SENSORS
     assert len(reference_columns(frame)) == len(SENSORS) * 2 * 2
 
 
@@ -169,8 +169,12 @@ def test_the_normal_reference_ignores_the_fault_period():
     stats = reference_statistics(frame, ["P-TPT"])
 
     normal_only = frame.loc[frame["class"] == 0, "P-TPT"].to_numpy()
-    assert stats[ref_col("P-TPT", "mean", "normal")] == pytest.approx(normal_only.mean())
-    assert stats[ref_col("P-TPT", "std", "normal")] == pytest.approx(normal_only.std())
+    assert stats[ref_col("P-TPT", "mean", "normal-operation-values")] == pytest.approx(
+        normal_only.mean()
+    )
+    assert stats[ref_col("P-TPT", "std", "normal-operation-values")] == pytest.approx(
+        normal_only.std()
+    )
 
 
 def test_the_fault_period_inflates_the_instance_divisor_above_the_normal_one():
@@ -179,7 +183,7 @@ def test_the_fault_period_inflates_the_instance_divisor_above_the_normal_one():
     stats = reference_statistics(synthetic_instance(), ["P-TPT"])
 
     leaky = stats[ref_col("P-TPT", "std", "instance")]
-    leak_free = stats[ref_col("P-TPT", "std", "normal")]
+    leak_free = stats[ref_col("P-TPT", "std", "normal-operation-values")]
     assert leaky > 3 * leak_free
 
 
@@ -229,7 +233,7 @@ def test_a_frame_without_the_reference_columns_says_to_rebuild():
 def test_normalizing_leaves_the_reference_columns_in_place_for_the_caller_to_drop():
     raw = built(synthetic_instance())
 
-    out = normalize_features(raw, "normal")
+    out = normalize_features(raw, "normal-operation-values")
 
     assert reference_columns(out) == reference_columns(raw)
     pd.testing.assert_frame_equal(out[reference_columns(out)], raw[reference_columns(raw)])

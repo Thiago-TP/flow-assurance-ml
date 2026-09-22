@@ -46,27 +46,35 @@ SIGNATURE_FIGURES_DIR = VISUALIZATION_DIR / "fault_signatures"
 # every reference beside them, so switching costs a training run, not a
 # dataset rebuild.
 #
-# ``none``      the raw features, unscaled. The default: for the axis-aligned
-#               tree models here, per-column scaling is a no-op, and the only
-#               scaling that does change the matrix — per instance — is the
-#               one that leaks.
-# ``instance``  mean and standard deviation over the whole recording. This is
-#               what the pipeline used to do at build time, kept so the old
-#               results stay reproducible; it is also the leak, since the
-#               divisor of a normal-operation window encodes how badly the
-#               well later failed (TODO item 9).
-# ``normal``    the same statistics over the instance's normal-operation
-#               samples only. Leak-free with respect to the fault period, and
-#               the honest choice for the detection task; for prediction it is
-#               close to circular, since every modeled window is already a
-#               normal-operation one.
-NORMALIZATIONS = ("none", "instance", "normal")
+# ``none``
+#     the raw features, unscaled. The default: for the axis-aligned tree models
+#     here, per-column scaling is a no-op, and the only scaling that does change
+#     the matrix — per instance — is the one that leaks.
+# ``instance``
+#     mean and standard deviation over the whole recording. This is what the
+#     pipeline used to do at build time, kept so the old results stay
+#     reproducible; it is also the leak, since the divisor of a
+#     normal-operation window encodes how badly the well later failed (TODO
+#     item 9).
+# ``normal-operation-values``
+#     the same statistics over the instance's normal-operation samples only.
+#     Leak-free with respect to the fault period, and the honest choice for the
+#     detection task; for prediction it is close to circular, since every
+#     modeled window is already a normal-operation one.
+NORMALIZATIONS = ("none", "instance", "normal-operation-values")
 NORMALIZATION = "none"
 NORMALIZATION_REFERENCES = tuple(n for n in NORMALIZATIONS if n != "none")
+NORMAL_OPERATION_REFERENCE = "normal-operation-values"
 
 # Columns holding those statistics. They live in the features parquet beside
 # the window features and are never fed to a model.
 REF_COL_PREFIX = "ref__"
+
+# Storage keys of the references, deliberately short and held apart from the
+# names above: the switch is user-facing prose and may be reworded, while these
+# are written into every features parquet. Renaming a choice must not
+# invalidate a 240 MB dataset, so only this mapping changes when one is.
+REFERENCE_KEYS = {"instance": "instance", NORMAL_OPERATION_REFERENCE: "normal"}
 
 
 def ref_col(sensor: str, stat: str, reference: str) -> str:
@@ -84,9 +92,12 @@ def ref_col(sensor: str, stat: str, reference: str) -> str:
     Returns
     -------
     str
-        E.g. ``"ref__P-TPT_mean_instance"``.
+        E.g. ``"ref__P-TPT_mean_instance"``. The suffix is the reference's
+        storage key (``REFERENCE_KEYS``), not its switch name.
     """
-    return f"{REF_COL_PREFIX}{sensor}_{stat}_{reference}"
+    if reference not in REFERENCE_KEYS:
+        raise ValueError(f"Unknown reference: {reference!r} (expected {NORMALIZATION_REFERENCES})")
+    return f"{REF_COL_PREFIX}{sensor}_{stat}_{REFERENCE_KEYS[reference]}"
 
 
 # How each of ``FEATURE_STATS`` behaves when its sensor is z-scored by the

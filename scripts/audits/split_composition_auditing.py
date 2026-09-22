@@ -17,7 +17,7 @@ Usage
 -----
     uv run scripts/audits/split_composition_auditing.py [--task {prediction,detection}]
         [--cv-group {instance_id,well_id,both}] [--eval {holdout,nested,leave-one-out}]
-        [--class-grouping {standard,hydrate,custom}] [--normalization {none,instance,normal}] [--allow-overlap]
+        [--class-grouping {standard,hydrate,custom}] [--normalization {none,instance,normal-operation-values}] [--allow-overlap]
         [--keep-extreme-values] [--output-file PATH] [--verbose]
 
 Output

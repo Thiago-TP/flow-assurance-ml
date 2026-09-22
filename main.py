@@ -12,7 +12,7 @@ Usage
     uv run main.py [--model {rf,xgb,dt}] [--task {prediction,detection}]
                    [--class-grouping {standard,hydrate,custom}]
                    [--eval {holdout,nested,leave-one-out}]
-                   [--cv-group {instance_id,well_id}] [--normalization {none,instance,normal}]
+                   [--cv-group {instance_id,well_id}] [--normalization {none,instance,normal-operation-values}]
                    [--frozen-sensors {keep,flag,drop}]
                    [--allow-overlap] [--keep-extreme-values] [--n-jobs N]
                    [--max-instances N] [--rebuild-features] [--verbose]

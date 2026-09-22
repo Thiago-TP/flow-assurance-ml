@@ -234,7 +234,8 @@ def load_task_data(
         ``"prediction"`` or ``"detection"``.
     normalization : str
         Reference the window features are z-scored against once loaded:
-        ``"none"`` (default), ``"instance"`` or ``"normal"``. The parquet is
+        ``"none"`` (default), ``"instance"`` or
+        ``"normal-operation-values"``. The parquet is
         the same for all three; see the ``normalization`` module.
     frozen_mode : str
         What to do about sensors that never move: ``"keep"`` their degenerate

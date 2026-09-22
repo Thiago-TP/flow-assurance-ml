@@ -48,7 +48,7 @@ Usage
                                         [--class-grouping {standard,hydrate,custom}]
                                         [--eval {holdout,nested,leave-one-out}]
                                         [--cv-group {instance_id,well_id}]
-                                        [--normalization {none,instance,normal}]
+                                        [--normalization {none,instance,normal-operation-values}]
                                         [--frozen-sensors {keep,flag,drop}] [--allow-overlap]
                                         [--n-jobs N] [--verbose]
 

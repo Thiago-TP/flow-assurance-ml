@@ -43,7 +43,8 @@ cross-validation fold. That is worth being explicit about, because it means
 moving normalization to load time does *not* by itself fix the leak — the
 contaminated divisor and the window it divides belong to the same instance and
 always land on the same side of any split. What fixes the leak is choosing a
-reference that never saw the fault period: ``normal``, or ``none``.
+reference that never saw the fault period: ``normal-operation-values``, or
+``none``.
 """
 
 import numpy as np
@@ -82,15 +83,17 @@ def normalized_sensors(frame: pd.DataFrame, reference: str) -> list[str]:
     """Sensors this frame can actually be z-scored against one reference.
 
     A sensor qualifies only when the frame carries everything
-    ``_normalize_sensor`` will read: both stored statistics of the reference,
-    *and* a complete set of window features. Stripping the
-    ``ref__<sensor>_mean_<reference>`` name is not enough on its own — sensor
-    names are free text, so a suffix match is an assumption about which names
-    happen not to collide rather than a fact about the frame. It is the
-    assumption that broke ``sensor_health.featured_sensors``, where ``_std``
-    also matched ``diff1_std`` and invented a sensor called ``P-TPT_diff1``.
-    Verifying the columns instead makes ``normalize_features`` total: every
-    sensor it is handed can be transformed completely.
+    ``_normalize_sensor`` will read: a complete set of window features *and*
+    both stored statistics of the reference. Nothing is recovered by taking a
+    column name apart. Sensor names are free text, so splitting on a suffix is
+    an assumption about which names happen not to collide rather than a fact
+    about the frame — the assumption that broke
+    ``sensor_health.featured_sensors``, where ``_std`` also matched
+    ``diff1_std`` and invented a sensor called ``P-TPT_diff1``. Composing the
+    names with ``ref_col`` instead also keeps this in step with how the columns
+    are actually written: the reference's storage key is not its switch name
+    (``config.REFERENCE_KEYS``), and deriving the suffix here from the switch
+    name would silently match nothing.
 
     Parameters
     ----------
@@ -104,15 +107,13 @@ def normalized_sensors(frame: pd.DataFrame, reference: str) -> list[str]:
     list[str]
         Sensor names, in column order.
     """
-    prefix, suffix = REF_COL_PREFIX, f"_mean_{reference}"
-    named = [
-        c[len(prefix) : -len(suffix)]
-        for c in frame.columns
-        if c.startswith(prefix) and c.endswith(suffix)
-    ]
-    complete = set(sensors_with_features(frame.columns))
     present = set(frame.columns)
-    return [s for s in named if s in complete and ref_col(s, "std", reference) in present]
+    return [
+        sensor
+        for sensor in sensors_with_features(frame.columns)
+        if ref_col(sensor, "mean", reference) in present
+        and ref_col(sensor, "std", reference) in present
+    ]
 
 
 def normalize_features(frame: pd.DataFrame, normalization: str) -> pd.DataFrame:

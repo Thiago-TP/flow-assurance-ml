@@ -33,6 +33,7 @@ from flowml.config import (
     FEATURE_STATS,
     KEY_SENSORS,
     MIN_VALID_SAMPLES,
+    NORMAL_OPERATION_REFERENCE,
     NORMALIZATION_REFERENCES,
     OPENING_MIN,
     PRESSURE_MIN,
@@ -127,8 +128,9 @@ def reference_statistics(df: pd.DataFrame, sensors: list[str]) -> dict[str, floa
       to apply at build time, kept so the earlier results stay reproducible,
       and the leak of TODO item 9: the fault period inflates the divisor of
       the normal-operation windows that the prediction task learns from.
-    - ``normal`` — over the samples the 3W ``class`` column marks as normal
-      operation (0), so the fault period cannot reach the statistic.
+    - ``normal-operation-values`` — over the samples the 3W ``class`` column
+      marks as normal operation (0), so the fault period cannot reach the
+      statistic.
 
     A sensor with fewer than two valid samples under a reference gets NaN for
     both statistics, which the normalizer reads as "leave this sensor raw" —
@@ -152,7 +154,7 @@ def reference_statistics(df: pd.DataFrame, sensors: list[str]) -> dict[str, floa
     for sensor in sensors:
         column = df[sensor].to_numpy(dtype=float)
         for reference in NORMALIZATION_REFERENCES:
-            if reference == "normal" and normal_mask is not None:
+            if reference == NORMAL_OPERATION_REFERENCE and normal_mask is not None:
                 sample = column[normal_mask]
             else:
                 sample = column

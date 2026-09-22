@@ -203,7 +203,7 @@ Each is tagged **feature**, **documentational** or **bugfix**.
   operation gives a near-zero divisor that blows up whatever moves later. Instead normalization
   stopped being a property of the dataset. Stage 1 now always writes **raw** features and stores, per
   instance and sensor, the mean and standard deviation of each candidate reference beside them
-  (32 extra columns); `--normalization {none,instance,normal}` picks one at load time, replacing
+  (32 extra columns); `--normalization {none,instance,normal-operation-values}` picks one at load time, replacing
   `--no-normalization`, and the default is now `none`. The transform is exact rather than a rebuild:
   z-scoring by a constant (mu, sigma) is affine, so all eleven statistics have closed forms —
   `(v-mu)/sigma`, `v/sigma`, unchanged, and `max(|max-mu|,|min-mu|)/sigma` for `max_zscore` — which

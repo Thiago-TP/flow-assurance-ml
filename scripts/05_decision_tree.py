@@ -46,7 +46,7 @@ Usage
     uv run scripts/05_decision_tree.py [--model {rf,xgb}] [--task {prediction,detection}]
                                        [--class-grouping {standard,hydrate,custom}]
                                        [--eval {holdout,nested,leave-one-out}]
-                                       [--cv-group {instance_id,well_id}] [--normalization {none,instance,normal}]
+                                       [--cv-group {instance_id,well_id}] [--normalization {none,instance,normal-operation-values}]
                                        [--frozen-sensors {keep,flag,drop}]
                                        [--allow-overlap] [--top-n N]
                                        [--depths 2,3,4,5,6,7,8,9,10,11,12]

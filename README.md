@@ -92,7 +92,7 @@ under a unique tag:
 | `--class-grouping`   | `standard`, `hydrate`, `custom` | `standard`          | 2-5    |
 | `--eval`             | `holdout`, `nested`, `leave-one-out` | `holdout` with `instance_id`, `leave-one-out` with `well_id` | 2-5 |
 | `--cv-group`         | `instance_id`, `well_id`          | `instance_id`       | 2-5    |
-| `--normalization`    | `none`, `instance`, `normal`    | `none`              | 2-5    |
+| `--normalization`    | `none`, `instance`, `normal-operation-values` | `none`   | 2-5    |
 | `--frozen-sensors`   | `flag`, `keep`, `drop`          | `flag`              | 2-5    |
 | `--allow-overlap`    | flag                                  | off                   | 1-5    |
 | `--keep-extreme-values` | flag                               | off                   | 1-5    |
@@ -145,7 +145,7 @@ training run instead of a 231 MB rebuild:
 | --- | --- | --- |
 | `none` (default) | — | The raw features. For axis-aligned tree models, per-*column* scaling is a no-op; the only scaling that changes the matrix is per-*instance*, and that is the one that leaks. |
 | `instance` | mean and sigma of the whole recording | Reproduces exactly what the pipeline did before, so earlier results stay comparable — **and its leak**: a normal-operation window is divided by a number the later fault helped produce. |
-| `normal` | mean and sigma of the instance's normal-operation samples | Leak-free with respect to the fault period, and the honest choice for detection. For prediction it is close to circular, since every modeled window is already a normal-operation one. |
+| `normal-operation-values` | mean and sigma of the instance's normal-operation samples | Leak-free with respect to the fault period, and the honest choice for detection. For prediction it is close to circular, since every modeled window is already a normal-operation one. |
 
 The transform is exact, not an approximation: z-scoring by a constant (mu, sigma)
 is affine, so each of the eleven statistics has a closed form — `(v - mu)/sigma`

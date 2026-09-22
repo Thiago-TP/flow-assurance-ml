@@ -12,7 +12,7 @@ of each class is simulated or hand-drawn data, which the well grouping drops.
 Usage
 -----
     uv run scripts/audits/well_leakage_auditing.py [--task {prediction,detection}]
-        [--normalization {none,instance,normal}] [--allow-overlap] [--keep-extreme-values]
+        [--normalization {none,instance,normal-operation-values}] [--allow-overlap] [--keep-extreme-values]
         [--output-file PATH] [--verbose]
 
 Output
