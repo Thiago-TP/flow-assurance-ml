@@ -399,7 +399,8 @@ def main() -> None:
     units = load_sensor_units(args.raw_dir)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    pdf_path = args.output_dir / "sensor_distributions.pdf"
+    stamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    pdf_path = args.output_dir / f"sensor_distributions_{stamp}.pdf"
     with PdfPages(pdf_path) as pdf:
         for sensor in sensors:
             fig = draw_sensor_page(sensor, rows, tallies, units.get(sensor, ""))
@@ -407,7 +408,6 @@ def main() -> None:
             plt.close(fig)
     print(f"  Saved: {pdf_path}")
 
-    stamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     summary_path = args.output_dir / f"sensor_distributions_{stamp}.txt"
     write_summary(summary_path, sensors, rows, tallies, units)
     print(f"  Saved: {summary_path}")
