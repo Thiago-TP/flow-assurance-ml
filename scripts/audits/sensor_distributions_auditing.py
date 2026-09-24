@@ -20,7 +20,10 @@ nothing about the masking rules; that decision comes after looking.
 The whole dataset is read (only the audited columns of each file), instance by
 instance, into fixed-grid histograms inside each band, so memory stays flat and
 the quartiles and percentiles are read off the histograms (0.1 bar and 0.03 °C
-resolution). Overlapping instances are all kept: the question is what a well's
+resolution); the mean and the extremes are kept as running values. Each row is
+drawn as that histogram, marked with its mean, median, quartiles and 1st/99th
+percentiles, and each page's title carries the smallest and largest reading of
+the sensor, masked or not. Overlapping instances are all kept: the question is what a well's
 sensors read, and duplicated samples do not move a distribution.
 
 Usage
@@ -87,7 +90,13 @@ SOURCE_NAMES = {
     "DRAWN": "hand-drawn instances",
 }
 INK, INK_SECONDARY, INK_MUTED, GRID = "#0b0b0b", "#52514e", "#898781", "#e1e0d9"
-QUANTILES = (0.01, 0.25, 0.50, 0.75, 0.99)  # whiskers, box, median, box, whiskers
+QUANTILES = (0.01, 0.25, 0.50, 0.75, 0.99)  # thin line, thick line, median, thick, thin
+
+# Row geometry, in row units (rows are 1 apart): the histogram sits from
+# HIST_BASE below the row's center up HIST_HEIGHT; the markers run MARKS_OFFSET
+# below the center, in the gap between the histogram and the next row.
+HIST_BASE, HIST_HEIGHT, MARKS_OFFSET = 0.18, 0.58, 0.30
+HIST_BINS_VISIBLE = 120  # merged bins across the visible window, for every row alike
 
 
 @dataclass
@@ -101,6 +110,9 @@ class Tally:
     n_below: int = 0
     n_above: int = 0
     n_instances: int = 0
+    in_band_sum: float = 0.0
+    value_min: float = np.inf  # over every present reading, in-band or not
+    value_max: float = -np.inf
 
     def add(self, values: np.ndarray, band: tuple[float, float]) -> None:
         """Fold one instance's readings in."""
@@ -108,13 +120,23 @@ class Tally:
         present = values[~missing]
         low, high = band
         below, above = present < low, present > high
+        in_band = present[~(below | above)]
         self.n_total += len(values)
         self.n_missing += int(missing.sum())
         self.n_zero += int((present == 0).sum())
         self.n_below += int(below.sum())
         self.n_above += int(above.sum())
-        self.counts += np.histogram(present[~(below | above)], bins=N_BINS, range=band)[0]
+        self.counts += np.histogram(in_band, bins=N_BINS, range=band)[0]
+        self.in_band_sum += float(in_band.sum())
+        if len(present):
+            self.value_min = min(self.value_min, float(present.min()))
+            self.value_max = max(self.value_max, float(present.max()))
         self.n_instances += 1
+
+    def mean(self) -> float | None:
+        """Mean of the in-band readings; ``None`` when there is none."""
+        total = int(self.counts.sum())
+        return self.in_band_sum / total if total else None
 
     def quantiles(self, band: tuple[float, float], qs=QUANTILES) -> list[float] | None:
         """Read quantiles off the in-band histogram; ``None`` when it is empty."""
@@ -187,30 +209,96 @@ def tint(color: str, strength: float = 0.35) -> tuple[float, float, float]:
     return tuple(1.0 - (1.0 - base) * strength)
 
 
+def draw_histogram_row(
+    ax: plt.Axes,
+    y: float,
+    tally: Tally,
+    band: tuple[float, float],
+    scale: float,
+    xlim: tuple[float, float],
+    factor: int,
+    color: str,
+) -> None:
+    """One row: the in-band histogram above ``y``, its summary markers below it.
+
+    The histogram is the tally's fixed grid merged ``factor`` bins at a time,
+    cropped to the visible window and scaled to its own tallest visible bin, so
+    rows compare by shape, not by reading count. Underneath, a thin line spans
+    the 1st to 99th percentile, a thick one the quartiles, a tick marks the
+    median and a diamond the mean.
+    """
+    starts = np.arange(0, N_BINS, factor)
+    counts = np.add.reduceat(tally.counts, starts)
+    edges = np.append(np.linspace(band[0], band[1], N_BINS + 1)[starts], band[1]) / scale
+    visible = (edges[1:] > xlim[0]) & (edges[:-1] < xlim[1])
+    first, last = np.flatnonzero(visible)[[0, -1]]
+    counts, edges = counts[first : last + 1], edges[first : last + 2]
+    peak = counts.max()
+    if peak:
+        base = y - HIST_BASE
+        ax.stairs(
+            base + HIST_HEIGHT * counts / peak,
+            edges,
+            baseline=base,
+            fill=True,
+            facecolor=tint(color),
+            edgecolor=color,
+            linewidth=0.6,
+        )
+
+    p1, q1, med, q3, p99 = (q / scale for q in tally.quantiles(band))
+    marks_y = y - MARKS_OFFSET
+    ax.hlines(marks_y, p1, p99, color=color, linewidth=0.9)
+    ax.vlines([p1, p99], marks_y - 0.07, marks_y + 0.07, color=color, linewidth=0.9)
+    ax.hlines(marks_y, q1, q3, color=color, linewidth=3.2, capstyle="butt")
+    ax.vlines(med, marks_y - 0.11, marks_y + 0.11, color=INK, linewidth=1.3)
+    ax.plot(
+        tally.mean() / scale,
+        marks_y,
+        marker="D",
+        markersize=3.2,
+        markerfacecolor="white",
+        markeredgecolor=INK,
+        markeredgewidth=0.8,
+        linestyle="none",
+    )
+
+
 def draw_sensor_page(
     sensor: str,
     rows: list[tuple[str, str]],
     tallies: dict[tuple[str, str], dict[str, Tally]],
     unit: str,
 ) -> plt.Figure:
-    """One page: a horizontal box per row, its tallies in the right margin."""
+    """One page: a histogram with summary markers per row, its tallies in the right margin."""
     band = BANDS[sensor]
     is_pressure = sensor in PRESSURE_SENSORS
     scale = PRESSURE_SCALE if is_pressure else 1.0
     axis_unit = "bar" if is_pressure else unit or "°C"
 
     n_rows = len(rows)
-    fig_h = 0.28 * n_rows + 2.6
+    fig_h = 0.40 * n_rows + 2.6
     fig, ax = plt.subplots(figsize=(11.5, fig_h))
     fig.subplots_adjust(left=0.11, right=0.60, top=1 - 1.45 / fig_h, bottom=1.0 / fig_h)
 
+    # The visible window is set by every row's 1st and 99th percentile, before
+    # anything is drawn, so all histograms share one bin width on screen.
+    row_quantiles = {key: tallies[key][sensor].quantiles(band) for key in rows}
+    span = [q for qs in row_quantiles.values() if qs is not None for q in (qs[0], qs[-1])]
+    xlim = None
+    if span:
+        low, high = min(span) / scale, max(span) / scale
+        pad = 0.03 * (high - low or 1.0)
+        xlim = (min(low, 0.0) - pad if is_pressure else low - pad, high + pad)
+        base_width = (band[1] - band[0]) / N_BINS / scale
+        factor = max(1, round((xlim[1] - xlim[0]) / HIST_BINS_VISIBLE / base_width))
+
     drawn_sources: dict[str, Patch] = {}
-    span_low, span_high = [], []
     for position, key in enumerate(rows):
         y = n_rows - position  # first row on top
         color = SOURCE_COLORS[key[0]]
         tally = tallies[key][sensor]
-        qs = tally.quantiles(band)
+        qs = row_quantiles[key]
         if qs is None:
             ax.text(
                 0.005,
@@ -222,21 +310,7 @@ def draw_sensor_page(
                 color=INK_MUTED,
             )
         else:
-            p1, q1, med, q3, p99 = (q / scale for q in qs)
-            span_low.append(p1)
-            span_high.append(p99)
-            ax.bxp(
-                [{"whislo": p1, "q1": q1, "med": med, "q3": q3, "whishi": p99}],
-                positions=[y],
-                orientation="horizontal",
-                widths=0.62,
-                showfliers=False,
-                patch_artist=True,
-                boxprops={"facecolor": tint(color), "edgecolor": color, "linewidth": 1.0},
-                medianprops={"color": INK, "linewidth": 1.3},
-                whiskerprops={"color": color, "linewidth": 1.0},
-                capprops={"color": color, "linewidth": 1.0},
-            )
+            draw_histogram_row(ax, y, tally, band, scale, xlim, factor, color)
             drawn_sources.setdefault(
                 key[0],
                 Patch(
@@ -263,10 +337,8 @@ def draw_sensor_page(
 
     ax.set_yticks(range(n_rows, 0, -1), [row_label(k) for k in rows], fontsize=7, color=INK)
     ax.set_ylim(0.3, n_rows + 0.7)
-    if span_low:
-        low, high = min(span_low), max(span_high)
-        pad = 0.03 * (high - low or 1.0)
-        ax.set_xlim(min(low, 0.0) - pad if is_pressure else low - pad, high + pad)
+    if xlim is not None:
+        ax.set_xlim(xlim)
     if is_pressure:
         ax.axvline(0, color=INK_MUTED, linewidth=0.8, zorder=0)
     if len(rows) > 1 and rows[-1][0] != "WELL":
@@ -288,8 +360,16 @@ def draw_sensor_page(
     )
     low_text = f"{band[0] / scale:g}" if is_pressure else f"{band[0]:g}"
     high_text = f"{band[1] / scale:g}" if is_pressure else f"{band[1]:g}"
+    # Extremes over every present reading of the page, the masked ones included.
+    value_min = min(tallies[key][sensor].value_min for key in rows)
+    value_max = max(tallies[key][sensor].value_max for key in rows)
+    extremes = (
+        f"min {value_min / scale:.4g} {axis_unit} · max {value_max / scale:.4g} {axis_unit}"
+        if np.isfinite(value_min)
+        else "no reading"
+    )
     fig.suptitle(
-        f"{sensor} — raw readings per real well vs simulated and hand-drawn instances",
+        f"{sensor} — raw readings per well and source · {extremes}",
         x=0.02,
         ha="left",
         fontsize=11,
@@ -299,8 +379,11 @@ def draw_sensor_page(
     fig.text(
         0.02,
         1 - 0.55 / fig_h,
-        "box: quartiles · line: median · whiskers: 1st and 99th percentile of the readings inside the "
-        f"plausible band [{low_text}, {high_text}] {axis_unit}\n"
+        "histogram of the readings inside the plausible band "
+        f"[{low_text}, {high_text}] {axis_unit}, each row scaled to its tallest bin · "
+        "title: smallest and largest of all readings, inside the band or not\n"
+        "under each histogram: thick line 25th–75th percentile · thin line 1st–99th percentile · "
+        "tick median · diamond mean\n"
         "right margin: instances, readings, share exactly 0 (frozen sensor — kept by the default masking), "
         "share outside the band (what the default masking removes), share missing",
         fontsize=7,
@@ -308,7 +391,7 @@ def draw_sensor_page(
         va="top",
     )
     if drawn_sources:
-        # Above the axes, so no box of a wide-ranging row can run under it.
+        # Above the axes, so no histogram of a wide-ranging row can run under it.
         ax.legend(
             handles=[drawn_sources[s] for s in SOURCE_COLORS if s in drawn_sources],
             loc="lower left",
@@ -328,8 +411,9 @@ def write_summary(
         fh.write(f"Sensor distributions audit — {datetime.now().astimezone():%Y-%m-%d %H:%M:%S}\n")
         fh.write(
             "Per sensor and row: instances, readings, share missing, share exactly zero, share "
-            "below / above the plausible band (masked by default), and the 1/25/50/75/99th "
-            "percentiles of the in-band readings in the sensor's stored unit.\n"
+            "below / above the plausible band (masked by default), the minimum and maximum of all "
+            "readings (band or not), and the mean and 1/25/50/75/99th percentiles of the in-band "
+            "readings, in the sensor's stored unit.\n"
         )
         for sensor in sensors:
             band = BANDS[sensor]
@@ -338,6 +422,8 @@ def write_summary(
                 t = tallies[key][sensor]
                 n = t.n_total or 1
                 qs = t.quantiles(band)
+                mean = t.mean()
+                present = np.isfinite(t.value_min)
                 records.append(
                     {
                         "row": row_label(key),
@@ -347,6 +433,9 @@ def write_summary(
                         "zero_%": round(100 * t.n_zero / n, 2),
                         "below_band_%": round(100 * t.n_below / n, 3),
                         "above_band_%": round(100 * t.n_above / n, 3),
+                        "min": round(t.value_min, 2) if present else None,
+                        "max": round(t.value_max, 2) if present else None,
+                        "mean": None if mean is None else round(mean, 2),
                         **{
                             f"p{int(q * 100)}": (None if qs is None else round(v, 2))
                             for q, v in zip(QUANTILES, qs or [None] * 5)
