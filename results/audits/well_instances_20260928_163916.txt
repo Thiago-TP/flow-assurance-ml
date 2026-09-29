@@ -1,0 +1,278 @@
+Well instances audit of ..\3W\dataset — 2026-09-28 16:39:16
+wells 1..42 (40) · key sensors P-PDG, T-PDG, P-TPT, T-TPT, P-MON-CKP, T-JUS-CKP, P-JUS-CKGL, QGL
+
+Well 1 has 132 instances
+  overlapping instances 127 (96.2 %) · timestamps shared 409,501 · label conflicts 0 · sensor disagreements 0
+  merged recordings 15 · unique samples 2,142,008 of 2,551,509 rows · label gaps 128
+
+Well 2 has 326 instances
+  overlapping instances 321 (98.5 %) · timestamps shared 1,072,591 · label conflicts 0 · sensor disagreements 0
+  merged recordings 20 · unique samples 4,613,937 of 5,686,528 rows · label gaps 321
+
+Well 3 has 29 instances
+  overlapping instances 25 (86.2 %) · timestamps shared 71,798 · label conflicts 0 · sensor disagreements 0
+  merged recordings 8 · unique samples 531,244 of 603,042 rows · label gaps 29
+
+Well 4 has 58 instances
+  overlapping instances 58 (100.0 %) · timestamps shared 193,614 · label conflicts 0 · sensor disagreements 0
+  merged recordings 3 · unique samples 414,797 of 609,987 rows · label gaps 58
+
+Well 5 has 119 instances
+  overlapping instances 118 (99.2 %) · timestamps shared 377,425 · label conflicts 0 · sensor disagreements 0
+  merged recordings 11 · unique samples 1,302,111 of 1,679,536 rows · label gaps 117
+
+Well 6 has 117 instances
+  overlapping instances 115 (98.3 %) · timestamps shared 379,232 · label conflicts 0 · sensor disagreements 0
+  merged recordings 8 · unique samples 2,455,407 of 2,834,639 rows · label gaps 116
+
+Well 7 has 12 instances
+  overlapping instances 12 (100.0 %) · timestamps shared 35,647 · label conflicts 0 · sensor disagreements 0
+  merged recordings 2 · unique samples 93,574 of 129,221 rows · label gaps 12
+
+Well 8 has 57 instances
+  overlapping instances 57 (100.0 %) · timestamps shared 170,909 · label conflicts 0 · sensor disagreements 0
+  merged recordings 5 · unique samples 1,042,413 of 1,213,322 rows · label gaps 57
+
+Well 9 has 1 instance
+  overlapping instances 0 (0.0 %) · timestamps shared 0 · label conflicts 0 · sensor disagreements 0
+  merged recordings 1 · unique samples 10,338 of 10,338 rows · label gaps 1
+
+Well 10 has 89 instances
+  overlapping instances 83 (93.3 %) · timestamps shared 286,340 · label conflicts 0 · sensor disagreements 0
+  merged recordings 8 · unique samples 843,223 of 1,129,563 rows · label gaps 89
+
+Well 11 has 13 instances
+  overlapping instances 0 (0.0 %) · timestamps shared 0 · label conflicts 0 · sensor disagreements 0
+  merged recordings 13 · unique samples 159,724 of 159,724 rows · label gaps 13
+
+Well 12 has 2 instances
+  overlapping instances 0 (0.0 %) · timestamps shared 0 · label conflicts 0 · sensor disagreements 0
+  merged recordings 2 · unique samples 21,092 of 21,092 rows · label gaps 2
+
+Well 13 has 1 instance
+  overlapping instances 0 (0.0 %) · timestamps shared 0 · label conflicts 0 · sensor disagreements 0
+  merged recordings 1 · unique samples 13,818 of 13,818 rows · label gaps 1
+
+Well 14 has 55 instances
+  overlapping instances 51 (92.7 %) · timestamps shared 147,221 · label conflicts 0 · sensor disagreements 0
+  merged recordings 13 · unique samples 871,017 of 1,018,238 rows · label gaps 55
+
+Well 15 has 2 instances
+  overlapping instances 0 (0.0 %) · timestamps shared 0 · label conflicts 0 · sensor disagreements 0
+  merged recordings 2 · unique samples 37,410 of 37,410 rows · label gaps 2
+
+Well 16 has 7 instances
+  overlapping instances 2 (28.6 %) · timestamps shared 3,177 · label conflicts 0 · sensor disagreements 0
+  merged recordings 6 · unique samples 106,979 of 110,156 rows · label gaps 7
+
+Well 19 has 5 instances
+  overlapping instances 0 (0.0 %) · timestamps shared 0 · label conflicts 0 · sensor disagreements 0
+  merged recordings 5 · unique samples 1,123,375 of 1,123,375 rows · label gaps 5
+
+Well 20 has 7 instances
+  overlapping instances 5 (71.4 %) · timestamps shared 2,303 · label conflicts 0 · sensor disagreements 0
+  merged recordings 4 · unique samples 384,542 of 386,845 rows · label gaps 7
+
+Well 21 has 2 instances
+  overlapping instances 0 (0.0 %) · timestamps shared 0 · label conflicts 0 · sensor disagreements 0
+  merged recordings 2 · unique samples 94,988 of 94,988 rows · label gaps 2
+
+Well 22 has 8 instances
+  overlapping instances 0 (0.0 %) · timestamps shared 0 · label conflicts 0 · sensor disagreements 0
+  merged recordings 8 · unique samples 3,103,175 of 3,103,175 rows · label gaps 8
+
+Well 23 has 4 instances
+  overlapping instances 0 (0.0 %) · timestamps shared 0 · label conflicts 0 · sensor disagreements 0
+  merged recordings 4 · unique samples 1,560,830 of 1,560,830 rows · label gaps 4
+
+Well 24 has 19 instances
+  overlapping instances 2 (10.5 %) · timestamps shared 1,227 · label conflicts 0 · sensor disagreements 0
+  merged recordings 18 · unique samples 2,779,475 of 2,780,702 rows · label gaps 19
+
+Well 25 has 1 instance
+  overlapping instances 0 (0.0 %) · timestamps shared 0 · label conflicts 0 · sensor disagreements 0
+  merged recordings 1 · unique samples 722,192 of 722,192 rows · label gaps 1
+
+Well 26 has 3 instances
+  overlapping instances 0 (0.0 %) · timestamps shared 0 · label conflicts 0 · sensor disagreements 0
+  merged recordings 3 · unique samples 1,295,403 of 1,295,403 rows · label gaps 3
+
+Well 27 has 1 instance
+  overlapping instances 0 (0.0 %) · timestamps shared 0 · label conflicts 0 · sensor disagreements 0
+  merged recordings 1 · unique samples 680,420 of 680,420 rows · label gaps 1
+
+Well 28 has 1 instance
+  overlapping instances 0 (0.0 %) · timestamps shared 0 · label conflicts 0 · sensor disagreements 0
+  merged recordings 1 · unique samples 325,379 of 325,379 rows · label gaps 1
+
+Well 29 has 1 instance
+  overlapping instances 0 (0.0 %) · timestamps shared 0 · label conflicts 0 · sensor disagreements 0
+  merged recordings 1 · unique samples 147,226 of 147,226 rows · label gaps 1
+
+Well 30 has 1 instance
+  overlapping instances 0 (0.0 %) · timestamps shared 0 · label conflicts 0 · sensor disagreements 0
+  merged recordings 1 · unique samples 161,538 of 161,538 rows · label gaps 1
+
+Well 31 has 1 instance
+  overlapping instances 0 (0.0 %) · timestamps shared 0 · label conflicts 0 · sensor disagreements 0
+  merged recordings 1 · unique samples 362,531 of 362,531 rows · label gaps 1
+
+Well 32 has 1 instance
+  overlapping instances 0 (0.0 %) · timestamps shared 0 · label conflicts 0 · sensor disagreements 0
+  merged recordings 1 · unique samples 134,202 of 134,202 rows · label gaps 1
+
+Well 33 has 6 instances
+  overlapping instances 2 (33.3 %) · timestamps shared 240 · label conflicts 0 · sensor disagreements 0
+  merged recordings 5 · unique samples 168,881 of 169,121 rows · label gaps 6
+
+Well 34 has 6 instances
+  overlapping instances 0 (0.0 %) · timestamps shared 0 · label conflicts 0 · sensor disagreements 0
+  merged recordings 6 · unique samples 207,938 of 207,938 rows · label gaps 6
+
+Well 35 has 6 instances
+  overlapping instances 0 (0.0 %) · timestamps shared 0 · label conflicts 0 · sensor disagreements 0
+  merged recordings 6 · unique samples 281,781 of 281,781 rows · label gaps 6
+
+Well 36 has 3 instances
+  overlapping instances 0 (0.0 %) · timestamps shared 0 · label conflicts 0 · sensor disagreements 0
+  merged recordings 3 · unique samples 28,547 of 28,547 rows · label gaps 3
+
+Well 37 has 4 instances
+  overlapping instances 2 (50.0 %) · timestamps shared 3,601 · label conflicts 0 · sensor disagreements 0
+  merged recordings 3 · unique samples 91,214 of 94,815 rows · label gaps 3
+
+Well 38 has 2 instances
+  overlapping instances 0 (0.0 %) · timestamps shared 0 · label conflicts 0 · sensor disagreements 0
+  merged recordings 2 · unique samples 127,711 of 127,711 rows · label gaps 2
+
+Well 39 has 2 instances
+  overlapping instances 0 (0.0 %) · timestamps shared 0 · label conflicts 0 · sensor disagreements 0
+  merged recordings 2 · unique samples 66,210 of 66,210 rows · label gaps 2
+
+Well 40 has 1 instance
+  overlapping instances 0 (0.0 %) · timestamps shared 0 · label conflicts 0 · sensor disagreements 0
+  merged recordings 1 · unique samples 34,417 of 34,417 rows · label gaps 1
+
+Well 41 has 9 instances
+  overlapping instances 2 (22.2 %) · timestamps shared 2,348 · label conflicts 0 · sensor disagreements 0
+  merged recordings 8 · unique samples 1,009,185 of 1,011,533 rows · label gaps 9
+
+Well 42 has 5 instances
+  overlapping instances 4 (80.0 %) · timestamps shared 3,865 · label conflicts 0 · sensor disagreements 0
+  merged recordings 3 · unique samples 159,383 of 163,248 rows · label gaps 5
+
+====================================================================================================
+Overlap agreement — timestamps shared by two or more instances of the same well
+  timestamps shared                   3,161,039
+  labelled in one instance only       3,159,450
+  unlabelled in all                       1,576
+  labelled in all, equal                     13
+  labelled in all, different                  0
+  sensor disagreements (readings 1e-09 apart or more), out of 15,835,810 sensor-timestamps compared:
+    P-PDG                0
+    T-PDG                0
+    P-TPT                0
+    T-TPT                0
+    P-MON-CKP            0
+    T-JUS-CKP            0
+    P-JUS-CKGL           0
+    QGL                  0
+
+====================================================================================================
+Merged recordings — instances that overlap or touch, joined
+  real instances 1,119 -> recordings 208 · rows 32,872,250 -> unique samples 29,709,635
+  recording length (h): median 20.4 · p90 102.8 · max 226.0
+  fault-class folders per recording (0 = only Normal): 0: 37, 1: 170, 2: 1
+  recordings drawing from more than one fault-class folder:
+    well 6 · 2018-06-17 19:02:57 - 2018-06-19 23:06:08 (52.1 h) · folders [1, 7] · instances: WELL-00006_20180617190257.parquet, WELL-00006_20180618103000.parquet
+      unlabelled                               2018-06-17 19:02:57 - 2018-06-17 20:02:56  (1.00 h)
+      Normal                                   2018-06-17 20:02:57 - 2018-06-18 08:01:45  (11.98 h)
+      Abrupt BSW Increase (transient)          2018-06-18 08:01:46 - 2018-06-18 10:45:28  (2.73 h)
+      Abrupt BSW Increase                      2018-06-18 10:45:29 - 2018-06-18 11:00:00  (0.24 h)
+      unlabelled                               2018-06-18 11:00:01 - 2018-06-18 11:29:59  (0.50 h)
+      Normal                                   2018-06-18 11:30:00 - 2018-06-18 13:00:00  (1.50 h)
+      PCK Scaling (transient)                  2018-06-18 13:00:01 - 2018-06-19 22:11:42  (33.20 h)
+      PCK Scaling                              2018-06-19 22:11:43 - 2018-06-19 23:06:08  (0.91 h)
+
+====================================================================================================
+Label gaps — unlabelled runs inside contiguous 1 Hz stretches of the merged timelines
+  different classes · Abrupt BSW Increase -> Normal                             1
+  different classes · Flow Instability -> Normal                                3
+  different classes · Hydrate in Service Line (transient) -> Normal             2
+  different classes · Normal -> Flow Instability                                3
+  different classes · PCK Scaling (transient) -> Normal                         1
+  different classes · Quick PCK Restriction -> Normal                           2
+  different classes · Rapid Productivity Loss (transient) -> Normal             3
+  different classes · Rapid Productivity Loss -> Normal                         1
+  edge of a stretch                                                           208
+  same class both sides · Flow Instability                                    313
+  same class both sides · Normal                                              544
+  same class both sides · Severe Slugging                                      25
+  lengths (s) of the same-class gaps, per class: count / median / p90 / max
+    Normal                                      544 /     107 /     307 /    3,360
+    Severe Slugging                              25 /      83 /     226 /      330
+    Flow Instability                            313 /      45 /     108 /      232
+  length of the same-class gaps relative to the recording that holds them (%): count / median / p90 / max / gaps above 1 %
+    Normal                                      544 /   0.024 /   0.135 /    5.292 /      2
+    Severe Slugging                              25 /   0.072 /   0.185 /    0.566 /      0
+    Flow Instability                            313 /   0.020 /   0.077 /    0.314 /      0
+
+  same-class gaps of at least 300 s, longest first (58 of 882), with the instances that cover them:
+    well 33 · Normal                       · 2019-09-26 06:56:06 - 2019-09-26 07:52:05 ·  3,360 s ·  5.29 % of its recording · WELL-00033_20190925190420.parquet, WELL-00033_20190926065206.parquet
+    well  1 · Normal                       · 2017-08-23 09:57:26 - 2017-08-23 10:21:45 ·  1,460 s ·  4.07 % of its recording · WELL-00001_20170823040000.parquet, WELL-00001_20170823092146.parquet
+    well 41 · Normal                       · 2019-08-19 17:17:01 - 2019-08-19 17:37:52 ·  1,252 s ·  0.40 % of its recording · WELL-00041_20190817173916.parquet, WELL-00041_20190819163753.parquet
+    well  2 · Normal                       · 2017-08-10 16:48:20 - 2017-08-10 16:59:59 ·    700 s ·  0.09 % of its recording · WELL-00002_20170810110000.parquet, WELL-00002_20170810160000.parquet
+    well  2 · Normal                       · 2017-08-11 17:51:15 - 2017-08-11 17:59:59 ·    525 s ·  0.07 % of its recording · WELL-00002_20170811120000.parquet, WELL-00002_20170811170000.parquet
+    well  2 · Normal                       · 2017-08-07 13:51:28 - 2017-08-07 13:59:59 ·    512 s ·  0.07 % of its recording · WELL-00002_20170807080000.parquet, WELL-00002_20170807130000.parquet
+    well  8 · Normal                       · 2017-07-03 00:56:15 - 2017-07-03 01:04:44 ·    510 s ·  0.16 % of its recording · WELL-00008_20170702190135.parquet, WELL-00008_20170703000445.parquet
+    well  8 · Normal                       · 2017-07-02 14:57:38 - 2017-07-02 15:05:31 ·    474 s ·  0.14 % of its recording · WELL-00008_20170702090222.parquet, WELL-00008_20170702140532.parquet
+    well  8 · Normal                       · 2017-08-17 14:54:28 - 2017-08-17 15:02:21 ·    474 s ·  0.17 % of its recording · WELL-00008_20170817090246.parquet, WELL-00008_20170817140222.parquet
+    well  8 · Normal                       · 2017-07-01 23:55:03 - 2017-07-02 00:02:45 ·    463 s ·  0.14 % of its recording · WELL-00008_20170701180222.parquet, WELL-00008_20170701230246.parquet
+    well  2 · Normal                       · 2017-08-12 18:52:22 - 2017-08-12 18:59:59 ·    458 s ·  0.06 % of its recording · WELL-00002_20170812130000.parquet, WELL-00002_20170812180000.parquet
+    well  5 · Normal                       · 2017-08-14 13:52:26 - 2017-08-14 13:59:59 ·    454 s ·  0.20 % of its recording · WELL-00005_20170814100000.parquet, WELL-00005_20170814130000.parquet
+    well  5 · Normal                       · 2017-08-12 19:52:44 - 2017-08-12 19:59:59 ·    436 s ·  0.19 % of its recording · WELL-00005_20170812160000.parquet, WELL-00005_20170812190000.parquet
+    well  3 · Normal                       · 2017-05-14 10:52:46 - 2017-05-14 10:59:59 ·    434 s ·  0.58 % of its recording · WELL-00003_20170514050000.parquet, WELL-00003_20170514100000.parquet
+    well  8 · Normal                       · 2017-06-29 21:56:15 - 2017-06-29 22:03:20 ·    426 s ·  0.13 % of its recording · WELL-00008_20170629160123.parquet, WELL-00008_20170629210321.parquet
+    well  8 · Normal                       · 2017-08-16 18:56:15 - 2017-08-16 19:03:20 ·    426 s ·  0.16 % of its recording · WELL-00008_20170816130222.parquet, WELL-00008_20170816180321.parquet
+    well  8 · Normal                       · 2017-06-11 07:57:50 - 2017-06-11 08:04:44 ·    415 s ·  0.21 % of its recording · WELL-00008_20170611020246.parquet, WELL-00008_20170611070445.parquet
+    well  8 · Normal                       · 2017-07-02 19:54:52 - 2017-07-02 20:01:34 ·    403 s ·  0.12 % of its recording · WELL-00008_20170702140532.parquet, WELL-00008_20170702190135.parquet
+    well  8 · Normal                       · 2017-06-11 02:56:15 - 2017-06-11 03:02:45 ·    391 s ·  0.19 % of its recording · WELL-00008_20170610210246.parquet, WELL-00008_20170611020246.parquet
+    well  1 · Normal                       · 2017-06-26 19:55:15 - 2017-06-26 20:01:34 ·    380 s ·  0.42 % of its recording · WELL-00001_20170626140123.parquet, WELL-00001_20170626190135.parquet
+    well  8 · Normal                       · 2017-06-30 07:56:50 - 2017-06-30 08:03:09 ·    380 s ·  0.12 % of its recording · WELL-00008_20170630020222.parquet, WELL-00008_20170630070310.parquet
+    well  8 · Normal                       · 2017-06-30 12:56:27 - 2017-06-30 13:02:45 ·    379 s ·  0.12 % of its recording · WELL-00008_20170630070310.parquet, WELL-00008_20170630120246.parquet
+    well  8 · Normal                       · 2017-06-30 22:55:27 - 2017-06-30 23:01:45 ·    379 s ·  0.12 % of its recording · WELL-00008_20170630170321.parquet, WELL-00008_20170630220146.parquet
+    well  8 · Normal                       · 2017-07-01 03:55:51 - 2017-07-01 04:02:09 ·    379 s ·  0.12 % of its recording · WELL-00008_20170630220146.parquet, WELL-00008_20170701030210.parquet
+    well  3 · Normal                       · 2017-08-12 06:54:22 - 2017-08-12 07:00:37 ·    376 s ·  0.23 % of its recording · WELL-00003_20170812010116.parquet, WELL-00003_20170812060038.parquet
+    well  6 · Normal                       · 2017-08-17 12:53:46 - 2017-08-17 12:59:59 ·    374 s ·  0.06 % of its recording · WELL-00006_20170817070000.parquet, WELL-00006_20170817120000.parquet
+    well  8 · Normal                       · 2017-06-14 17:55:15 - 2017-06-14 18:01:22 ·    368 s ·  0.20 % of its recording · WELL-00008_20170614120135.parquet, WELL-00008_20170614170123.parquet
+    well  8 · Normal                       · 2017-08-18 10:56:50 - 2017-08-18 11:02:57 ·    368 s ·  0.13 % of its recording · WELL-00008_20170818050210.parquet, WELL-00008_20170818100258.parquet
+    well  8 · Normal                       · 2017-06-30 02:56:15 - 2017-06-30 03:02:21 ·    367 s ·  0.11 % of its recording · WELL-00008_20170629210321.parquet, WELL-00008_20170630020222.parquet
+    well  8 · Normal                       · 2017-06-30 17:57:14 - 2017-06-30 18:03:20 ·    367 s ·  0.11 % of its recording · WELL-00008_20170630120246.parquet, WELL-00008_20170630170321.parquet
+    well  8 · Normal                       · 2017-08-17 09:56:39 - 2017-08-17 10:02:45 ·    367 s ·  0.13 % of its recording · WELL-00008_20170817040135.parquet, WELL-00008_20170817090246.parquet
+    well  2 · Normal                       · 2017-04-06 14:53:55 - 2017-04-06 14:59:59 ·    365 s ·  0.14 % of its recording · WELL-00002_20170406090000.parquet, WELL-00002_20170406140000.parquet
+    well  3 · Normal                       · 2017-05-14 15:53:59 - 2017-05-14 15:59:59 ·    361 s ·  0.48 % of its recording · WELL-00003_20170514100000.parquet, WELL-00003_20170514150000.parquet
+    well  6 · Normal                       · 2017-08-16 16:53:59 - 2017-08-16 16:59:59 ·    361 s ·  0.06 % of its recording · WELL-00006_20170816110000.parquet, WELL-00006_20170816160000.parquet
+    well  2 · Normal                       · 2017-06-18 12:00:01 - 2017-06-18 12:05:59 ·    359 s ·  0.04 % of its recording · WELL-00002_20170618060105.parquet, WELL-00002_20170618110600.parquet
+    well  1 · Normal                       · 2017-05-23 21:54:02 - 2017-05-23 21:59:59 ·    358 s ·  0.05 % of its recording · WELL-00001_20170523160000.parquet, WELL-00001_20170523210000.parquet
+    well  8 · Normal                       · 2017-08-18 20:57:14 - 2017-08-18 21:03:09 ·    356 s ·  0.13 % of its recording · WELL-00008_20170818150123.parquet, WELL-00008_20170818200310.parquet
+    well  8 · Normal                       · 2017-07-02 09:56:27 - 2017-07-02 10:02:21 ·    355 s ·  0.11 % of its recording · WELL-00008_20170702040135.parquet, WELL-00008_20170702090222.parquet
+    well  8 · Normal                       · 2017-06-15 13:57:26 - 2017-06-15 14:03:09 ·    344 s ·  0.19 % of its recording · WELL-00008_20170615080234.parquet, WELL-00008_20170615130310.parquet
+    well  8 · Normal                       · 2017-09-14 11:57:02 - 2017-09-14 12:02:45 ·    344 s ·  0.60 % of its recording · WELL-00008_20170914060222.parquet, WELL-00008_20170914110246.parquet
+    well  5 · Normal                       · 2017-08-14 19:54:22 - 2017-08-14 19:59:59 ·    338 s ·  0.15 % of its recording · WELL-00005_20170814160000.parquet, WELL-00005_20170814190000.parquet
+    well  6 · Normal                       · 2017-08-17 02:54:25 - 2017-08-17 02:59:59 ·    335 s ·  0.05 % of its recording · WELL-00006_20170816210000.parquet, WELL-00006_20170817020000.parquet
+    well  8 · Normal                       · 2017-07-01 08:56:50 - 2017-07-01 09:02:21 ·    332 s ·  0.10 % of its recording · WELL-00008_20170701030210.parquet, WELL-00008_20170701080222.parquet
+    well  8 · Normal                       · 2017-07-01 13:56:03 - 2017-07-01 14:01:34 ·    332 s ·  0.10 % of its recording · WELL-00008_20170701080222.parquet, WELL-00008_20170701130135.parquet
+    well  8 · Normal                       · 2017-06-14 22:58:02 - 2017-06-14 23:03:32 ·    331 s ·  0.18 % of its recording · WELL-00008_20170614170123.parquet, WELL-00008_20170614220333.parquet
+    well 14 · Severe Slugging              · 2017-09-26 16:56:58 - 2017-09-26 17:02:27 ·    330 s ·  0.20 % of its recording · WELL-00014_20170926110103.parquet, WELL-00014_20170926160228.parquet
+    well  6 · Normal                       · 2017-08-19 04:54:38 - 2017-08-19 04:59:59 ·    322 s ·  0.05 % of its recording · WELL-00006_20170818230000.parquet, WELL-00006_20170819040000.parquet
+    well  5 · Normal                       · 2017-08-12 16:54:39 - 2017-08-12 16:59:59 ·    321 s ·  0.14 % of its recording · WELL-00005_20170812130000.parquet, WELL-00005_20170812160000.parquet
+    well  8 · Normal                       · 2017-06-11 17:56:03 - 2017-06-11 18:01:22 ·    320 s ·  0.16 % of its recording · WELL-00008_20170611120123.parquet, WELL-00008_20170611170123.parquet
+    well  8 · Normal                       · 2017-08-19 11:56:50 - 2017-08-19 12:02:09 ·    320 s ·  0.12 % of its recording · WELL-00008_20170819060246.parquet, WELL-00008_20170819110210.parquet
+    well  2 · Normal                       · 2017-03-10 08:00:01 - 2017-03-10 08:05:17 ·    317 s ·  0.11 % of its recording · WELL-00002_20170310020146.parquet, WELL-00002_20170310070518.parquet
+    well  2 · Normal                       · 2017-06-16 10:00:01 - 2017-06-16 10:05:15 ·    315 s ·  0.05 % of its recording · WELL-00002_20170616040043.parquet, WELL-00002_20170616090516.parquet
+    well  3 · Normal                       · 2017-08-13 07:55:56 - 2017-08-13 08:01:04 ·    309 s ·  0.19 % of its recording · WELL-00003_20170813020000.parquet, WELL-00003_20170813070105.parquet
+    well  1 · Normal                       · 2017-06-27 00:58:25 - 2017-06-27 01:03:32 ·    308 s ·  0.34 % of its recording · WELL-00001_20170626190135.parquet, WELL-00001_20170627000333.parquet
+    well  8 · Normal                       · 2017-08-18 00:57:14 - 2017-08-18 01:02:21 ·    308 s ·  0.11 % of its recording · WELL-00008_20170817190123.parquet, WELL-00008_20170818000222.parquet
+    well  8 · Normal                       · 2017-08-18 15:56:15 - 2017-08-18 16:01:22 ·    308 s ·  0.11 % of its recording · WELL-00008_20170818100258.parquet, WELL-00008_20170818150123.parquet
+    well  2 · Normal                       · 2017-06-20 04:00:01 - 2017-06-20 04:05:04 ·    304 s ·  0.04 % of its recording · WELL-00002_20170619220043.parquet, WELL-00002_20170620030505.parquet
+    well  5 · Normal                       · 2017-08-16 16:54:57 - 2017-08-16 16:59:59 ·    303 s ·  0.13 % of its recording · WELL-00005_20170816130000.parquet, WELL-00005_20170816160000.parquet
