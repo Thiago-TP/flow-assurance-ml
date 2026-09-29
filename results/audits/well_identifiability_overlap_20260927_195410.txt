@@ -1,0 +1,60 @@
+Well identifiability audit — 2026-09-27 19:54:10
+features features_overlap.parquet | frozen sensors flag | forests of 300 trees, untuned
+real normal-operation windows: 82,115 | recordings 658 | wells 33
+
+=== 1. Well-identifiability probe (target = well_id, 5-fold GroupKFold by instance, at most 800 windows per well) ===
+  14,795 windows | 33 wells | 10 wells have a single recording and cannot be identified by construction | chance F1-macro: uniform 0.027, prior 0.030
+  pipeline features, none                       96 features | accuracy 0.805 | F1-macro 0.617
+  dispersion and derivative statistics only     56 features | accuracy 0.754 | F1-macro 0.576
+  pipeline features, instance                   96 features | accuracy 0.713 | F1-macro 0.536
+  pipeline features, normal-operation-values    96 features | accuracy 0.714 | F1-macro 0.483
+  flow-path level differences                   12 features | accuracy 0.782 | F1-macro 0.590
+  frozen flags only                              8 features | accuracy 0.236 | F1-macro 0.167
+  frozen + missing flags                        16 features | accuracy 0.563 | F1-macro 0.421
+
+=== 2. Well-lookup baseline (no features: the majority fault of the well's other recordings) ===
+  window-level accuracy 0.936 | F1-macro 0.603 | chance F1-macro: uniform 0.068, prior 0.125, majority 0.105
+  per-class recall:
+      0 Normal                       0.984  (n=59,797)
+      1 Abrupt BSW Increase          0.000  (n=984)
+      2 Spurious DHSV Closure        0.670  (n=554)
+      5 Rapid Productivity Loss      1.000  (n=369)
+      6 Quick PCK Restriction        0.000  (n=243)
+      7 PCK Scaling                  0.939  (n=5,665)
+      8 Hydrate in Production Line   0.393  (n=3,335)
+      9 Hydrate in Service Line      0.948  (n=11,168)
+
+=== 3. Within-well control (wells with Normal and fault recordings; leave-one-recording-out over the fault recordings) ===
+  recordings per (well, class):
+  fault_class    0  1  2  5  6  7  8  9
+  well_id                              
+  1             93  1  0  0  0  1  0  0
+  19             1  0  0  0  0  0  3  0
+  2            209  1  1  0  3  0  0  0
+  3             26  0  3  0  0  0  0  0
+  4             12  0  0  0  3  0  0  0
+  6            113  2  0  0  0  2  0  0
+  a class needs at least two recordings in the well, so the held-out one has a training example
+
+  normalization = none
+    well   1: only one class has two or more recordings, skipped
+    well  19: only one class has two or more recordings, skipped
+    well   2: classes [0, 6] | 24,371 windows | window F1-macro 0.670 (accuracy 0.971, majority prior 0.992) | recordings by majority vote: fault recordings recognized 3/3, all 1.000 of 212
+    well   3: classes [0, 2] | 3,186 windows | window F1-macro 0.883 (accuracy 0.987, majority prior 0.966) | recordings by majority vote: fault recordings recognized 2/3, all 0.966 of 29
+    well   4: classes [0, 6] | 601 windows | window F1-macro 1.000 (accuracy 1.000, majority prior 0.937) | recordings by majority vote: fault recordings recognized 3/3, all 1.000 of 15
+    well   6: classes [0, 1, 7] | 14,200 windows | window F1-macro 0.328 (accuracy 0.945, majority prior 0.945) | recordings by majority vote: fault recordings recognized 0/4, all 0.966 of 117
+
+  normalization = normal-operation-values
+    well   1: only one class has two or more recordings, skipped
+    well  19: only one class has two or more recordings, skipped
+    well   2: classes [0, 6] | 24,371 windows | window F1-macro 0.508 (accuracy 0.963, majority prior 0.992) | recordings by majority vote: fault recordings recognized 0/3, all 0.986 of 212
+    well   3: classes [0, 2] | 3,186 windows | window F1-macro 0.547 (accuracy 0.965, majority prior 0.966) | recordings by majority vote: fault recordings recognized 1/3, all 0.931 of 29
+    well   4: classes [0, 6] | 601 windows | window F1-macro 0.911 (accuracy 0.982, majority prior 0.937) | recordings by majority vote: fault recordings recognized 2/3, all 0.933 of 15
+    well   6: classes [0, 1, 7] | 14,200 windows | window F1-macro 0.324 (accuracy 0.945, majority prior 0.945) | recordings by majority vote: fault recordings recognized 0/4, all 0.966 of 117
+
+=== 4. Well-grouped fault probe (target = fault_class, 5-fold GroupKFold by well, all windows, pooled out-of-fold) ===
+  82,115 windows | chance F1-macro: uniform 0.068, prior 0.125, majority 0.105 | a class held out with all its wells cannot be predicted in that fold
+  pipeline features, none                       96 features | accuracy 0.526 | F1-macro 0.239 | recall per class 0:0.51 1:0.00 2:0.64 5:0.00 6:0.00 7:0.04 8:0.35 9:0.98
+  dispersion and derivative statistics only     56 features | accuracy 0.374 | F1-macro 0.277 | recall per class 0:0.26 1:0.20 2:0.17 5:0.00 6:0.00 7:0.50 8:0.43 9:0.98
+  flow-path level differences                   12 features | accuracy 0.230 | F1-macro 0.224 | recall per class 0:0.10 1:0.00 2:0.68 5:0.00 6:0.00 7:0.51 8:0.39 9:0.74
+  pipeline features + differences              108 features | accuracy 0.214 | F1-macro 0.195 | recall per class 0:0.07 1:0.00 2:0.77 5:0.00 6:0.00 7:0.07 8:0.64 9:0.96
