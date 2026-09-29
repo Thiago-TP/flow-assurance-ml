@@ -520,17 +520,21 @@ terminal and save a copy under `results/audits/`; the write-ups under
 
 | Script | Question it answers | Writes |
 | ------ | ------------------- | ------ |
-| `well_instances_auditing.py` | Which instances of a well overlap in time, and do the overlaps carry conflicting labels? | `well_instances_audit_<timestamp>.txt` |
+| `well_instances_auditing.py` | Which instances of a well overlap in time; do the overlaps disagree on labels or readings; what recordings do they merge into; which unlabelled gaps sit inside the merged timelines, and which are long enough to inspect? | `well_instances_<timestamp>.txt` + `well_instances_<timestamp>.pdf` |
 | `split_composition_auditing.py` | What does each split hold, class by class, under each CV grouping and protocol — and which wells carry normal operation at all? | `split_composition_<...>_<timestamp>.txt` |
 | `well_leakage_auditing.py` | How much of the instance-grouped test set comes from wells seen in training, per class; how do the real instances of each class concentrate in wells; how much of each class is synthetic? | `well_leakage_<...>_<timestamp>.txt` |
 | `sensor_distributions_auditing.py` | Where do each well's pressure and temperature readings sit, against the simulated and hand-drawn instances — and how much of each is frozen at zero, masked by default, or missing? | `sensor_distributions.pdf` (one page per sensor) + `sensor_distributions_<timestamp>.txt` |
 | `normalization_leakage_auditing.py` | Does per-instance z-scoring leak the coming fault into the normal-operation windows the prediction task learns from? | `normalization_leakage_<timestamp>.txt` |
+| `well_identifiability_auditing.py` | How much of a normal-operation window is the well and how much is the coming fault: can a forest name the well from one window under each feature set; what does a feature-free well lookup score; is a pre-fault window separable from an ordinary one inside a well; what does each feature set score with the well held out? | `well_identifiability_<...>_<timestamp>.txt` |
+| `operational_state_auditing.py` | Which operational states (Open, Shut-In, Restart, ...) the real wells' normal-operation samples are in, per fault folder and per well — is the well state a hidden confounder of the prediction task? | `operational_state_<timestamp>.txt` |
 
 ```bash
 uv run scripts/audits/split_composition_auditing.py --allow-overlap
 uv run scripts/audits/well_leakage_auditing.py --allow-overlap
 uv run scripts/audits/sensor_distributions_auditing.py          # reads the whole raw dataset; --max-instances 3 for a look
 uv run scripts/audits/normalization_leakage_auditing.py
+uv run scripts/audits/well_identifiability_auditing.py --allow-overlap   # ~10 min; --max-windows-per-well 40 --n-estimators 20 for a look
+uv run scripts/audits/operational_state_auditing.py             # reads two columns of every real instance; --max-instances 3 for a look
 ```
 
 ## Layout
@@ -544,6 +548,10 @@ uv run scripts/audits/normalization_leakage_auditing.py
 │   ├── normalization.py      load-time z-scoring against a chosen reference
 │   ├── sensor_health.py      frozen-sensor detection · blanking · indicators
 │   ├── features.py           windowing · 88 features · labeling
+│   ├── dataset/              prototype of the next feature dataset (see ideas/2026-09-28_new_feature_dataset.md)
+│   │   ├── reconstruction.py 3W real instances merged into recordings · gap relabeling · 3W layout + manifest
+│   │   ├── extraction.py     windows of a chosen length · features · flags · running statistics · metadata
+│   │   └── manifest.py       manifest helpers shared by both steps
 │   ├── train_val_test.py     task datasets · pipelines · CV search · holdout / nested / leave-one-out evaluation · split composition
 │   ├── evaluation.py         metrics · per-group sheet · confusion matrix
 │   ├── interpretation.py     MDI · gain · permutation · SHAP · tree export
@@ -557,9 +565,11 @@ uv run scripts/audits/normalization_leakage_auditing.py
 │   └── cli.py                shared argparse (--eval defaults per --cv-group)
 ├── main.py                   runs all stages in order
 ├── scripts/                  the pipeline stages + dataset visualization (thin CLIs)
+│   ├── build_dataset.py      the prototype dataset builder: reconstruction, then windows (not yet a stage)
 │   └── audits/               standalone dataset and split audits (see *Audits*)
+├── ideas/                    planning documents, one per topic, date-prefixed
 ├── tests/                    pytest suite
-├── data/                     generated features (git-ignored)
+├── data/                     generated features (git-ignored) · merged*/ reconstructions of the real instances
 ├── plots/                    stage-0 dataset plots (git-ignored)
 │   ├── instances_per_fault/   one PDF per fault class
 │   ├── fault_signatures/      one subdirectory per instance source
